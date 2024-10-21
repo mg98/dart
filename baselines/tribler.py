@@ -1,0 +1,3 @@
+"""
+Corresponds to original ranking.
+"""
