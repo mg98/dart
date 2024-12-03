@@ -65,7 +65,7 @@ metadata_cursor = conn.cursor()
 
 # Prepare the query to select all TorrentInfo fields at once
 query = """
-SELECT infohash, title, tags, torrent_date, size
+SELECT infohash, title, tags, timestamp/1000 as timestamp, size
 FROM ChannelNode
 WHERE infohash IN ({})
 """
@@ -86,7 +86,7 @@ for result in results:
     torrent_info = TorrentInfo()
     torrent_info.title = result[1]
     torrent_info.tags = result[2].split(',') if result[2] else []
-    torrent_info.creation_date = result[3]
+    torrent_info.timestamp = result[3]
     torrent_info.size = result[4]
     torrent_infos[infohash] = torrent_info
 

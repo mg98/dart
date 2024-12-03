@@ -16,6 +16,10 @@ from torch.utils.data import DataLoader
 import numpy as np
 from common import UserActivity
 
+def gen_ltr_dataset(user_activities: list[UserActivity]):
+    
+    pass
+
 def ltr_rank(user_activities: list[UserActivity]):
     """
     Implementing Learning to Rank using the allRank library.
