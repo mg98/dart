@@ -1,15 +1,17 @@
-import json
 import re
 from rank_bm25 import BM25Okapi
-import time
+import pickle
 import numpy as np
 import pandas as pd
 import shutil
+from collections import defaultdict
 from common import *
 
 np.random.seed(42)
 
 EXPORT_PATH = "tribler_data"
+shutil.rmtree(EXPORT_PATH, ignore_errors=True)
+os.makedirs(EXPORT_PATH, exist_ok=True)
 
 def tokenize(text):
     text = re.sub(r'[^\w\s]', ' ', text)
@@ -37,8 +39,9 @@ def compile_records(df):
             v = QueryDocumentRelationVector()
             v.seeders = result.seeders
             v.leechers = result.leechers
-            v.age = ua.timestamp - result.torrent_info.timestamp
+            v.age = row['timestamp'] - result.torrent_info.timestamp
             v.bm25 = bm25_scores[i]
+            v.query_hit_count = sum(hit_counts[k][result.infohash] for k in query_terms)
 
             # aggregate tf idf features over all query terms
             tfidf_results = [tfidf.get_tf_idf(result.infohash, term) for term in query_terms]
@@ -68,44 +71,19 @@ def compile_records(df):
         
     return records
 
-print("Fetching user activities...")
+with open('user_activities.pkl', 'rb') as f:
+    user_activities = pickle.load(f)
 
-user_activities = []
-for user in os.listdir("crawl"):
-    user_path = os.path.join("crawl", user)
-    if not os.path.isdir(user_path):
-        continue
-        
-    for json_file in os.listdir(user_path):
-        if not json_file.endswith('.json'):
-            continue
-            
-        with open(os.path.join(user_path, json_file)) as f:
-            data = json.load(f)
-            if data["chosen_index"] == -1:
-                continue
-            ua = UserActivity(data)
-            ua.issuer = user
-            user_activities.append(ua)
-
-fetch_torrent_infos(user_activities)
-
-print("Processing data and building corpus...")
-
-# Filter invalid user activities
-user_activities = [ua for ua in user_activities 
-                   if ua.chosen_result.torrent_info is not None 
-                   and ua.query.strip() != "" 
-                   and ua.timestamp != 0 
-                   and ua.timestamp < time.time()]
-
-# Filter out results whose torrent info is missing
-for ua in user_activities:
-    ua.results = [res for res in ua.results if res.torrent_info is not None]
+print("Building corpus...")
 
 # Build the corpus
 unique_documents = {res.infohash: res for ua in user_activities for res in ua.results}.values()
 unique_queries = {ua.query for ua in user_activities}
+# Write queries to TSV file
+with open(f"{EXPORT_PATH}/queries.tsv", "w") as f:
+    for qid, query in enumerate(unique_queries):
+        f.write(f"qid:{qid}\t{query}\n")
+
 corpus = {doc.infohash: doc.torrent_info.title.lower() for doc in unique_documents}
 doc_ids = list(corpus.keys())
 tfidf = TFIDF(corpus)
@@ -124,6 +102,12 @@ user_activity_df = pd.DataFrame([
     for ua in user_activities
 ])
 
+# Panaché hit counts
+hit_counts = defaultdict(lambda: defaultdict(int)) # keyword -> infohash -> count
+for ua in user_activities:
+    for keyword in ua.query.lower().split():
+        hit_counts[keyword][ua.chosen_result.infohash] += 1
+
 ################
 # MAIN DATASET #
 ################
@@ -133,15 +117,13 @@ print("Generating main dataset...")
 # Group by qid and aggregate, keeping only results and chosen_result counts
 aggregated_df = user_activity_df.groupby('query').agg({
     'results': 'first',
+    'timestamp': 'first',
     'chosen_result': lambda x: dict(pd.Series(x).value_counts()) # infohash -> count
 }).reset_index()
 
 # Compile list of records
 records = compile_records(aggregated_df)
 train_records, val_records, test_records = split_dataset_by_qids(records)
-
-shutil.rmtree(EXPORT_PATH, ignore_errors=True)
-os.makedirs(EXPORT_PATH, exist_ok=True)
 
 with open(f"{EXPORT_PATH}/train.txt", "w") as f:
     f.writelines(str(record) + "\n" for record in train_records)
@@ -165,22 +147,23 @@ os.system(f"python ./allRank/reproducibility/normalize_features.py --ds_path {EX
 
 print("Generating user-specific datasets...")
 
-# Get top 10 users by number of queries
+# Get top users by number of queries
 user_query_counts = user_activity_df.groupby('user')['query'].nunique()
-top_users = user_query_counts.nlargest(10).index
+top_users = user_query_counts.nlargest(8).index
 
 # Create per-user datasets
 for user in top_users:
     # Get qids for this user's queries
     individual_user_activity_df = user_activity_df[user_activity_df['user'] == user]
-    # user_queries = individual_user_activity_df['query'].unique()
-    # user_qids = [list(unique_queries).index(q) for q in user_queries]
+    
+    # Sort by timestamp ascending
+    individual_user_activity_df = individual_user_activity_df.sort_values('timestamp')
     
     # Filter records for this user's queries
     user_records = compile_records(individual_user_activity_df)
     
     # Split dataset
-    train_records, val_records, test_records = split_dataset_by_qids(user_records)
+    train_records, val_records, test_records = split_dataset_by_qids(user_records, train_ratio=0.6, val_ratio=0.4)
     
     # Create user directory
     user_dir = os.path.join(EXPORT_PATH, "by_user", str(user))
