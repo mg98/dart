@@ -1,17 +1,20 @@
+print("Importing modules...")
 import pickle
-import sys
 import numpy as np
 from joblib import Parallel, delayed
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 from sklearn.metrics import ndcg_score
-from baselines.panache import panache_rank_fast as panache_rank
+from baselines.panache import panache_rank
 from baselines.dinx import dinx_rank, dinx_rank_by_seeders
 from baselines.maay import maay_rank_numpy as maay_rank
 from baselines.grank import grank_fast as grank
 from baselines.random import random_rank
 from baselines.tribler import tribler_rank
 from baselines.ltr import ltr_rank
+import contextlib
+import os
+print("Done importing modules")
 
 np.random.seed(42)
 
@@ -43,7 +46,10 @@ def calc_ndcg(ua, k=None):
     
     return ndcg_score([true_relevance], [predicted_relevance])
 
-def simulate_gradually(user_activities, rank_func, batch_size=64, k=10):
+def mean_ndcg(user_activities, k=None):
+    return np.round(np.mean([calc_ndcg(ua, k) for ua in user_activities]), 3)
+
+def chronological_eval(user_activities, rank_func, batch_size=64, k=10):
     user_activities.sort(key=lambda ua: ua.timestamp)
 
     # Move the processing logic to a separate function
@@ -61,24 +67,18 @@ def simulate_gradually(user_activities, rank_func, batch_size=64, k=10):
     
     return ndcgs
 
-def parallel_batched_processing(user_activities, ranking_fn, batch_size=64, k=10):
-    """Compute leave-n-out nDCG scores for a ranking function"""
-    def process_batch(i):
-        reranked_activities = ranking_fn(
-            user_activities[:i*batch_size] + user_activities[(i+1)*batch_size:], 
-            user_activities[i*batch_size:(i+1)*batch_size]
-            )
-        return mean_ndcg(reranked_activities, k=k)
-
+def simple_eval(user_activities, ranking_fn, k=10):
+    """
+    Sample 80% of the data for training and 20% for testing.
+    Then, rerank the training set and evaluate the test set.
+    """
     np.random.shuffle(user_activities)
-    ndcgs = Parallel(n_jobs=-1)(
-        delayed(process_batch)(i)
-        for i in range(len(user_activities) // batch_size)
+    split_idx = int(0.8 * len(user_activities))
+    reranked_activities = ranking_fn(
+        user_activities[:split_idx],
+        user_activities[split_idx:]
     )
-    return ndcgs
-
-def mean_ndcg(user_activities, k=None):
-    return np.round(np.mean([calc_ndcg(ua, k) for ua in user_activities]), 3)
+    return mean_ndcg(reranked_activities, k=k)
 
 def plot_ndcg(ndcgs_dict, window_size=1000, filename='combined_plot.png'):
     plt.figure(figsize=(12, 8))
@@ -95,12 +95,16 @@ def plot_ndcg(ndcgs_dict, window_size=1000, filename='combined_plot.png'):
     plt.close()
 
 if __name__ == "__main__":
+    print("Loading user activities...")
     with open('user_activities.pkl', 'rb') as f:
         user_activities = pickle.load(f)
+    user_activities = user_activities[:300]
+    print(f"Loaded {len(user_activities)} user activities.")
 
     ranking_algos = {
         "Tribler": tribler_rank,
         "Random": random_rank,
+        "LTR": ltr_rank,
         "Panaché": panache_rank,
         "DINX": dinx_rank,
         "DINX (seeders)": dinx_rank_by_seeders,
@@ -109,61 +113,21 @@ if __name__ == "__main__":
     }
 
     all_ndcgs = {}
+
+    np.random.shuffle(user_activities)
+    split_idx = int(0.8 * len(user_activities))
     
     for algo_name, ranking_algo in ranking_algos.items():
         print(f"============{algo_name}=============")
 
         for k in K_RANGE:
-            ndcgs = parallel_batched_processing(user_activities, ranking_algo, k=k)
+            reranked_activities = ranking_algo(
+                user_activities[:split_idx],
+                user_activities[split_idx:]
+            )
+            ndcgs = mean_ndcg(reranked_activities, k=k)
             print(f"nDCG@{k}: {np.mean(ndcgs)}")
-
-        ndcgs = simulate_gradually(user_activities, ranking_algo, batch_size=1)
+        # ndcgs = chronological_eval(user_activities, ranking_algo, batch_size=1)
         all_ndcgs[algo_name] = ndcgs
     
     plot_ndcg(all_ndcgs, filename='combined_results.png')
-
-    # print("============DINX=============")
-    # for k in K_RANGE:
-    #     ndcgs = parallel_batched_processing(user_activities, dinx_rank, k=k)
-    #     print(f"nDCG@{k}: {np.mean(ndcgs)}")
-
-    # # ranked_user_activities = dinx_rank(user_activities)
-    # # for k in K_RANGE:
-    # #     print(f"nDCG@{k}: {mean_ndcg(ranked_user_activities, k=k)}")
-    # # ndcgs = simulate_gradually(user_activities, dinx_rank)
-    
-    # # Plot the gradual nDCG scores
-    # plt.figure(figsize=(10, 6))
-    # plt.plot(range(len(ndcgs)), ndcgs)
-    # plt.xlabel('Number of Training Examples')
-    # plt.ylabel('nDCG Score')
-    # plt.title('DINX Learning Curve')
-    # plt.grid(True)
-    # plt.savefig('dinx_learning_curve.png')
-    # plt.close()
-    # #print(f"nDCG: {simulate_gradually(user_activities, dinx_rank)}")
-
-    # print("============DINX by seeders=============")
-    # for k in K_RANGE:
-    #     ndcgs = parallel_batched_processing(user_activities, dinx_rank_by_seeders, k=k)
-    #     print(f"nDCG@{k}: {np.mean(ndcgs)}")
-    # #print(f"nDCG: {simulate_gradually(user_activities, dinx_rank_by_seeders)}")
-
-    # print("============MAAY=============") 
-    # ranked_user_activities = maay_rank(user_activities)
-    # for k in K_RANGE:
-    #     ndcgs = parallel_batched_processing(user_activities, maay_rank, k=k)
-    #     print(f"nDCG@{k}: {np.mean(ndcgs)}")
-    # #print(f"nDCG: {simulate_gradually(user_activities, maay_rank)}")
-
-    # print("============G-Rank=============")
-    # ranked_user_activities = grank(user_activities)
-    # for k in K_RANGE:
-    #     ndcgs = parallel_batched_processing(user_activities, grank, k=k)
-    #     print(f"nDCG@{k}: {np.mean(ndcgs)}")
-    #print(f"nDCG: {simulate_gradually(user_activities, grank)}")
-    
-    ltr_rank(user_activities)
-
-    # average_ndcg = np.mean([calculate_ndcg(ua) for ua in user_activities])
-    # print(f"Average nDCG: {average_ndcg}")

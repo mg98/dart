@@ -39,17 +39,12 @@ for ua in user_activities:
 
 user_activities = list(filter(lambda ua: len(ua.results) > 1, user_activities))
 
+for ua in user_activities:
+    for doc in ua.results:
+        assert doc.torrent_info is not None
+
 # Persist user_activities to disk
 with open('user_activities.pkl', 'wb') as f:
     pickle.dump(user_activities, f)
 
 print(f"User activities saved to user_activities.pkl")
-
-# Example of how to load the data in another Python file:
-# 
-# import pickle
-# 
-# with open('user_activities.pkl', 'rb') as f:
-#     loaded_user_activities = pickle.load(f)
-# 
-# print(f"Loaded {len(loaded_user_activities)} user activities")

@@ -7,6 +7,8 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 import functools
+import re
+from sklearn.datasets import load_svmlight_file, dump_svmlight_file
 
 np.random.seed(42)
 
@@ -32,6 +34,11 @@ def ranking_func(_func=None, *, shuffle=True):
     
     return _decorate
 
+def tokenize(text):
+    text = re.sub(r'[^\w\s]', ' ', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text.lower().split()
+
 class TorrentInfo:
     title: str
     tags: list[str]
@@ -43,6 +50,9 @@ class TorrentInfo:
         self.tags = kwargs.get('tags', [])
         self.timestamp = kwargs.get('timestamp', 0)
         self.size = kwargs.get('size', 0)
+    
+    def __repr__(self):
+        return f"TorrentInfo(title='{self.title}', tags={self.tags}, timestamp={self.timestamp}, size={self.size})"
 
     def __getstate__(self):
         return {
@@ -85,9 +95,15 @@ class UserActivityTorrent:
         return state
 
     def __setstate__(self, state):
-        self.__dict__.update(state)
-        if isinstance(self.torrent_info, dict):
-            self.torrent_info = TorrentInfo(**self.torrent_info)
+        if isinstance(state, UserActivityTorrent):
+            self.infohash = state.infohash
+            self.seeders = state.seeders
+            self.leechers = state.leechers
+            self.torrent_info = state.torrent_info
+        else:
+            self.__dict__.update(state)
+            if isinstance(self.torrent_info, dict):
+                self.torrent_info = TorrentInfo(**self.torrent_info)
 
 class UserActivity:
     issuer: str
@@ -107,7 +123,7 @@ class UserActivity:
 
     def __repr__(self):
         return (f"UserActivity(issuer={self.issuer}, query={self.query}, "
-                f"timestamp={self.timestamp}, chosen_result={self.chosen_result}, results={self.results})")
+                f"timestamp={self.timestamp}, chosen_result={self.chosen_result}, results=[{len(self.results)}  items...])")
 
     def __getstate__(self):
         state = self.__dict__.copy()
@@ -115,14 +131,36 @@ class UserActivity:
         return state
 
     def __setstate__(self, state):
+        # Extract the list of results from the state
+        results_state = state.pop('results', [])
+        chosen_result_state = state.pop('chosen_result', None)  # Extract chosen_result separately
+
+        # Update the rest of the fields
         self.__dict__.update(state)
-        # Check if results contains UserActivityTorrent objects or dicts
-        if state['results'] and not isinstance(state['results'][0], UserActivityTorrent):
-            self.results = [UserActivityTorrent(result) for result in state['results']]
-        # Update chosen_result to point to the correct object in results
-        if self.chosen_result:
-            chosen_hash = self.chosen_result.infohash
-            self.chosen_result = next(r for r in self.results if r.infohash == chosen_hash)
+
+        # Convert each of the dicts in results_state back into a UserActivityTorrent
+        self.results = []
+        for r_state in results_state:
+            torrent = UserActivityTorrent.__new__(UserActivityTorrent)
+            torrent.__setstate__(r_state)
+            self.results.append(torrent)
+
+        # Handle chosen_result reconstruction
+        if chosen_result_state is None:
+            self.chosen_result = None
+        else:
+            # Create a new UserActivityTorrent for chosen_result
+            chosen_torrent = UserActivityTorrent.__new__(UserActivityTorrent)
+            chosen_torrent.__setstate__(chosen_result_state)
+            
+            # Find the matching torrent in results
+            self.chosen_result = next(
+                (t for t in self.results if t.infohash == chosen_torrent.infohash), 
+                None
+            )
+            
+            if self.chosen_result is None:
+                print(f"Warning: Could not find matching torrent for chosen_result with infohash: {chosen_torrent.infohash}")
 
 
 def fetch_torrent_infos(user_activities: list[UserActivity]):
@@ -288,3 +326,74 @@ def split_dataset_by_qids(records, train_ratio=0.8, val_ratio=0.1):
     test_records = [ClickThroughRecord(**record) for _, record in test_records_df.iterrows()]
     
     return train_records, val_records, test_records
+
+
+FEATURES_WITHOUT_LOGARITHM = [
+    5, 6, 7, 8, 9, 15, 19, 57, 58, 62, 75, 79, 85, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 121, 122, 127, 129, 130]
+FEATURES_NEGATIVE = [110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 123, 124]
+
+def normalize_features(ds_path: str, 
+                       features_without_logarithm: list[int] = FEATURES_WITHOUT_LOGARITHM, 
+                       features_negative: list[int] = FEATURES_NEGATIVE):
+    """
+    Normalize features in the dataset.
+    Adapted from https://github.com/allegro/allRank/blob/master/reproducibility/normalize_features.py.
+    """
+    
+    x_train, y_train, query_ids_train = load_svmlight_file(os.path.join(ds_path, "train.txt"), query_id=True)
+    x_test, y_test, query_ids_test = load_svmlight_file(os.path.join(ds_path, "test.txt"), query_id=True)
+    x_vali, y_vali, query_ids_vali = load_svmlight_file(os.path.join(ds_path, "vali.txt"), query_id=True)
+
+    x_train_transposed = x_train.toarray().T
+    x_test_transposed = x_test.toarray().T
+    x_vali_transposed = x_vali.toarray().T
+
+    x_train_normalized = np.zeros(x_train_transposed.shape)
+    x_test_normalized = np.zeros(x_test_transposed.shape)
+    x_vali_normalized = np.zeros(x_vali_transposed.shape)
+
+    eps_log = 1e-2
+    eps = 1e-6
+
+    for i, feat in enumerate(x_train_transposed):
+        feature_vector_train = feat
+        feature_vector_test = x_test_transposed[i, ]
+        feature_vector_vali = x_vali_transposed[i, ]
+
+        if i in features_negative:
+            feature_vector_train = (-1) * feature_vector_train
+            feature_vector_test = (-1) * feature_vector_test
+            feature_vector_vali = (-1) * feature_vector_vali
+
+        if i not in features_without_logarithm:
+            # log only if all values >= 0
+            if np.all(feature_vector_train >= 0) & np.all(feature_vector_test >= 0) & np.all(feature_vector_vali >= 0):
+                feature_vector_train = np.log(feature_vector_train + eps_log)
+                feature_vector_test = np.log(feature_vector_test + eps_log)
+                feature_vector_vali = np.log(feature_vector_vali + eps_log)
+            else:
+                print("Some values of feature no. {} are still < 0 which is why the feature won't be normalized".format(i))
+
+        mean = np.mean(feature_vector_train)
+        std = np.std(feature_vector_train)
+        feature_vector_train = (feature_vector_train - mean) / (std + eps)
+        feature_vector_test = (feature_vector_test - mean) / (std + eps)
+        feature_vector_vali = (feature_vector_vali - mean) / (std + eps)
+        x_train_normalized[i, ] = feature_vector_train
+        x_test_normalized[i, ] = feature_vector_test
+        x_vali_normalized[i, ] = feature_vector_vali
+
+    ds_normalized_path = os.path.join(ds_path, "_normalized")
+    os.makedirs(ds_normalized_path, exist_ok=True)
+
+    train_normalized_path = os.path.join(ds_normalized_path, "train.txt")
+    with open(train_normalized_path, "w"):
+        dump_svmlight_file(x_train_normalized.T, y_train, train_normalized_path, query_id=query_ids_train)
+
+    test_normalized_path = os.path.join(ds_normalized_path, "test.txt")
+    with open(test_normalized_path, "w"):
+        dump_svmlight_file(x_test_normalized.T, y_test, test_normalized_path, query_id=query_ids_test)
+
+    vali_normalized_path = os.path.join(ds_normalized_path, "vali.txt")
+    with open(vali_normalized_path, "w"):
+        dump_svmlight_file(x_vali_normalized.T, y_vali, vali_normalized_path, query_id=query_ids_vali)

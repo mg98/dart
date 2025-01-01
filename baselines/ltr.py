@@ -1,31 +1,35 @@
 import sys
 import os
 import time
-from urllib.parse import urlparse
-
-sys.path.append('./allRank')
+import shutil
 
 import allrank.models.losses as losses
-import numpy as np
 from allrank.config import Config
-from allrank.data.dataset_loading import load_libsvm_dataset, create_data_loaders
+from allrank.data.dataset_loading import load_libsvm_dataset, load_libsvm_dataset_role, create_data_loaders
 from allrank.models.model import make_model
-from allrank.models.model_utils import get_torch_device, CustomDataParallel
+from allrank.models.model_utils import get_torch_device, load_state_dict_from_file
 from allrank.training.train_utils import fit
-from allrank.utils.command_executor import execute_command
-from allrank.utils.experiments import dump_experiment_result, assert_expected_metrics
-from allrank.utils.file_utils import create_output_dirs, PathsContainer, copy_local_to_gs
-from allrank.utils.ltr_logging import init_logger
+from allrank.utils.file_utils import create_output_dirs, PathsContainer
 from allrank.utils.python_utils import dummy_context_mgr
+from allrank.inference.inference_utils import rank_slates, metrics_on_clicked_slates
+from allrank.click_models.click_utils import click_on_slates
+from allrank.utils.config_utils import instantiate_from_recursive_name_args
+from allrank.models.metrics import ndcg, dcg
 
 import torch
 from torch.utils.data import DataLoader
-from common import UserActivity
 from argparse import Namespace
 from attr import asdict
 from functools import partial
-from pprint import pformat
 from torch import optim
+from copy import deepcopy
+import contextlib
+
+from common import UserActivity, ranking_func, split_dataset_by_qids, normalize_features
+from ltr_helper import LTRDatasetMaker, write_records
+
+dev = get_torch_device()
+
 
 def shard_dataset(dataset, shard_id, num_shards):
     """
@@ -50,76 +54,29 @@ def shard_dataset(dataset, shard_id, num_shards):
     # Return the subset of the dataset for the current shard
     return torch.utils.data.Subset(dataset, range(start_idx, end_idx)).dataset
 
-def ltr_rank(user_activities: list[UserActivity], shard_id=0, num_shards=3):
-    """
-    Implementing Learning to Rank using the allRank library with dataset sharding.
-    Args:
-        user_activities (list[UserActivity]): The list of user activities.
-        shard_id (int): The ID of the current shard (for sharding purposes).
-        num_shards (int): The total number of shards.
-    """
-
-    args = Namespace(
-        job_dir="./",
-        run_id=str(int(time.time())),
-        config_file_name="./allRank/scripts/local_config_click_model.json"
-    )
-
-    paths = PathsContainer.from_args(args.job_dir, args.run_id, args.config_file_name)
-
-    create_output_dirs(paths.output_dir)
-
-    logger = init_logger(paths.output_dir)
-    logger.info(f"created paths container {paths}")
-
-    # read config
-    config = Config.from_json(paths.config_path)
-    logger.info("Config:\n {}".format(pformat(vars(config), width=1)))
-
-    output_config_path = os.path.join(paths.output_dir, "used_config.json")
-    execute_command("cp {} {}".format(paths.config_path, output_config_path))
-
-    # train_ds, val_ds
+def train_ltr_model(paths, config):
+    
     train_ds, val_ds = load_libsvm_dataset(
         input_path=config.data.path,
         slate_length=config.data.slate_length,
         validation_ds_role=config.data.validation_ds_role,
     )
 
-    # Shard the datasets
-    train_ds = shard_dataset(train_ds, shard_id, num_shards)
-    val_ds = shard_dataset(val_ds, shard_id, num_shards)
-
-    n_features = train_ds.shape[-1]
-    print("n features", n_features)
-    assert n_features == val_ds.shape[-1], "Last dimensions of train_ds and val_ds do not match!"
-
-    # train_dl, val_dl
     train_dl, val_dl = create_data_loaders(
         train_ds, val_ds, num_workers=config.data.num_workers, batch_size=config.data.batch_size)
 
-    # gpu support
-    dev = get_torch_device()
-    logger.info("Model training will execute on {}".format(dev.type))
-
-    # instantiate model
-    model = make_model(n_features=n_features, **asdict(config.model, recurse=False))
-    if torch.cuda.device_count() > 1:
-        model = CustomDataParallel(model)
-        logger.info("Model training will be distributed to {} GPUs.".format(torch.cuda.device_count()))
+    model = make_model(n_features=train_ds.shape[-1], **asdict(config.model, recurse=False))
     model.to(dev)
 
-    # load optimizer, loss and LR scheduler
     optimizer = getattr(optim, config.optimizer.name)(params=model.parameters(), **config.optimizer.args)
     loss_func = partial(getattr(losses, config.loss.name), **config.loss.args)
     if config.lr_scheduler.name:
         scheduler = getattr(optim.lr_scheduler, config.lr_scheduler.name)(optimizer, **config.lr_scheduler.args)
     else:
         scheduler = None
-
+    
     with torch.autograd.detect_anomaly() if config.detect_anomaly else dummy_context_mgr():  # type: ignore
-        # run training
-        result = fit(
+        fit(
             model=model,
             loss_func=loss_func,
             optimizer=optimizer,
@@ -133,11 +90,164 @@ def ltr_rank(user_activities: list[UserActivity], shard_id=0, num_shards=3):
             **asdict(config.training)
         )
 
-    dump_experiment_result(args, config, paths.output_dir, result)
+    return model
 
-    if urlparse(args.job_dir).scheme == "gs":
-        copy_local_to_gs(paths.local_base_output_path, args.job_dir)
+def test_ltr_model(model, paths, config):
+    datasets = {"test": load_libsvm_dataset_role("test", config.data.path, config.data.slate_length)}
 
-    assert_expected_metrics(result, config.expected_metrics)
+    click_model = instantiate_from_recursive_name_args(name_args=config.click_model)
+    with contextlib.redirect_stdout(None):
+        ranked_slates = rank_slates(datasets, model, config)
+    clicked_slates = click_on_slates(ranked_slates["test"], click_model, include_empty=False)
+
+    Xs, ys = clicked_slates
     
-    return None
+    metrics = {
+        "ndcg_5": [],
+        "ndcg_10": [],
+        "ndcg_30": [],
+        "ndcg_60": []
+    }
+    for X, y in zip(Xs, ys):
+        ndcg_scores = ndcg(
+            torch.arange(start=len(y), end=0, step=-1, dtype=torch.float32)[None, :],
+            torch.tensor(y)[None, :],
+            ats=[5, 10, 30, 60]
+        )
+        
+        metrics["ndcg_5"].append(ndcg_scores[0][0].item())
+        metrics["ndcg_10"].append(ndcg_scores[0][1].item())
+        metrics["ndcg_30"].append(ndcg_scores[0][2].item())
+        metrics["ndcg_60"].append(ndcg_scores[0][3].item())
+
+    # calculate metrics
+    metrics = {k: sum(v) / len(v) for k, v in metrics.items()}
+    print(metrics)
+    
+    # metered_slates = {role: metrics_on_clicked_slates(slates) for role, slates in clicked_slates.items()}  # type: ignore
+    # for role, metrics in metered_slates.items():
+    #     import pandas as pd
+    #     metrics_df = pd.DataFrame(metrics)
+    #     metrics_df.to_csv(os.path.join(paths.output_dir, f"{role}_metrics.csv"), index=False)
+    #     print(os.path.join(paths.output_dir, f"{role}_metrics_mean.csv"))
+    #     pd.DataFrame(metrics_df.mean()).T.to_csv(os.path.join(paths.output_dir, f"{role}_metrics_mean.csv"), index=False)
+
+
+@ranking_func
+def ltr_rank(clicklogs: list[UserActivity], activities: list[UserActivity]):
+    """
+    Implementing Learning to Rank using the allRank library with dataset sharding.
+    Args:
+        user_activities (list[UserActivity]): The list of user activities.
+        shard_id (int): The ID of the current shard (for sharding purposes).
+        num_shards (int): The total number of shards.
+    """
+    args = Namespace(
+        job_dir="./",
+        run_id=str(int(time.time())),
+        config_file_name="./allRank_config.json"
+    )
+    paths = PathsContainer.from_args(args.job_dir, args.run_id, args.config_file_name)
+    create_output_dirs(paths.output_dir)
+    config = Config.from_json(paths.config_path)
+
+    dataset_path = 'some_dir/'
+    qid_mappings = {ua.query for ua in clicklogs} | {ua.query for ua in activities}
+    
+    # create train.txt and vali.txt
+    ltrdm_clicklogs = LTRDatasetMaker(clicklogs)
+    ltrdm_clicklogs.qid_mappings = qid_mappings
+    records = ltrdm_clicklogs.compile_records()
+    train_records, vali_records, _ = split_dataset_by_qids(records, train_ratio=0.8, val_ratio=0.2)
+    del records
+
+    # create test.txt
+    ltrdm_activities = LTRDatasetMaker(activities)
+    ltrdm_activities.qid_mappings = qid_mappings
+    test_records = ltrdm_activities.compile_records()
+    
+    write_records(dataset_path, {
+        "train": train_records,
+        "vali": vali_records,
+        "test": test_records
+    })
+    normalize_features(dataset_path)
+    
+    config.data.path = os.path.join(dataset_path, "_normalized")
+
+    # try:
+    model = train_ltr_model(paths, deepcopy(config))
+    # test_ltr_model(model, paths, deepcopy(config))
+
+    test_ds = load_libsvm_dataset_role("test", config.data.path, config.data.slate_length)
+    test_dl = DataLoader(test_ds, batch_size=config.data.batch_size, num_workers=config.data.num_workers, shuffle=False)
+
+    model.eval()
+    activity_idx = 0
+
+    # Create a dictionary mapping queries to their first occurrence index
+    query_to_first_idx = {}
+    for idx, activity in enumerate(activities):
+        if activity.query not in query_to_first_idx:
+            query_to_first_idx[activity.query] = idx
+    
+    with torch.no_grad():
+        for xb, yb, indices in test_dl:
+
+            X = xb.type(torch.float32).to(device=dev)
+            y_true = yb.to(device=dev)
+            indices = indices.to(device=dev)
+
+            input_indices = torch.ones_like(y_true).type(torch.long)
+            mask = (y_true == losses.PADDED_Y_VALUE)
+            scores = model.score(X, mask, input_indices)
+
+            # Iterate over each query in the batch
+            for i in range(scores.size(0)):
+                while query_to_first_idx[activities[activity_idx].query] < activity_idx:
+                    activities[activity_idx].results = activities[
+                            query_to_first_idx[activities[activity_idx].query]
+                        ].results
+                    activity_idx += 1
+
+                slate_scores = scores[i]
+                slate_indices = indices[i]
+                slate_mask = mask[i]
+                
+                valid_scores = slate_scores[~slate_mask]
+                valid_indices = slate_indices[~slate_mask]
+                
+                # if valid_scores.numel() == 0:
+                #     print(f"Query has no valid documents.")
+                #     continue
+                
+                # Compute the rankings
+                _, sorted_idx = torch.sort(valid_scores, descending=True)
+                sorted_original_indices = valid_indices[sorted_idx]
+
+                sorted_indices = sorted_original_indices.cpu().tolist()
+
+                activities[activity_idx].results = [
+                    activities[activity_idx].results[i] for i in sorted_indices
+                ]
+                activity_idx += 1
+
+
+    # for activity in activities:
+    #     query_id = list(unique_queries).index(activity.query)
+    #     if query_id in rankings:
+    #         # Get the new order from rankings
+    #         new_order = rankings[query_id]
+    #         # Reorder the results according to the rankings
+    #         reordered_results = [activity.results[i] for i in new_order]
+    #         # Replace the original results with reordered ones
+    #         activity.results = reordered_results
+
+    return activities
+
+    # except Exception as e:
+    #     raise e
+    # finally:
+    #     shutil.rmtree(dataset_path, ignore_errors=True)
+
+    return activities
