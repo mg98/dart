@@ -261,13 +261,19 @@ class QueryDocumentRelationVector:
     age: float = 0.0
     query_hit_count: int = 0
 
-    def __str__(self):
-        fields = [self.seeders, self.leechers, self.age, self.bm25, self.query_hit_count,
+    @property
+    def features(self):
+        # There is a bug where when the last feature value is 0, sklearn trims it from the dataset,
+        # which yields inconsistent shapes and crashes the training. As a dirty fix, I put the age
+        # feature at last position.
+        return [self.seeders, self.leechers, self.bm25, self.query_hit_count,
                  self.tf_min, self.tf_max, self.tf_mean, self.tf_sum,
                  self.idf_min, self.idf_max, self.idf_mean, self.idf_sum,
                  self.tf_idf_min, self.tf_idf_max, self.tf_idf_mean, self.tf_idf_sum,
-                 self.tf_variance, self.idf_variance, self.tf_idf_variance]
-        return ' '.join(f'{i}:{val}' for i, val in enumerate(fields))
+                 self.tf_variance, self.idf_variance, self.tf_idf_variance, self.age]
+
+    def __str__(self):
+        return ' '.join(f'{i}:{val}' for i, val in enumerate(self.features))
 
 class ClickThroughRecord:
     rel: float
@@ -348,9 +354,9 @@ def normalize_features(ds_path: str,
     x_test_transposed = x_test.toarray().T
     x_vali_transposed = x_vali.toarray().T
 
-    x_train_normalized = np.zeros(x_train_transposed.shape)
-    x_test_normalized = np.zeros(x_test_transposed.shape)
-    x_vali_normalized = np.zeros(x_vali_transposed.shape)
+    x_train_normalized = np.zeros_like(x_train_transposed)
+    x_test_normalized = np.zeros_like(x_test_transposed)
+    x_vali_normalized = np.zeros_like(x_vali_transposed)
 
     eps_log = 1e-2
     eps = 1e-6
@@ -396,4 +402,9 @@ def normalize_features(ds_path: str,
 
     vali_normalized_path = os.path.join(ds_normalized_path, "vali.txt")
     with open(vali_normalized_path, "w"):
-        dump_svmlight_file(x_vali_normalized.T, y_vali, vali_normalized_path, query_id=query_ids_vali)
+        x_vali_normalized[13,10] = 0.0
+        x_vali_normalized[14,10] = 0.0
+        x_vali_normalized[15,10] = 0.0
+        a = x_vali_normalized.T
+        a = np.pad(a, ((0, 0), (0, 20 - a.shape[1])))
+        dump_svmlight_file(a, y_vali, vali_normalized_path, query_id=query_ids_vali)

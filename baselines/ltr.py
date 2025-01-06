@@ -2,6 +2,7 @@ import sys
 import os
 import time
 import shutil
+import uuid
 
 import allrank.models.losses as losses
 from allrank.config import Config
@@ -54,14 +55,12 @@ def shard_dataset(dataset, shard_id, num_shards):
     # Return the subset of the dataset for the current shard
     return torch.utils.data.Subset(dataset, range(start_idx, end_idx)).dataset
 
-def train_ltr_model(paths, config):
-    
+def train_ltr_model(config):
     train_ds, val_ds = load_libsvm_dataset(
         input_path=config.data.path,
         slate_length=config.data.slate_length,
         validation_ds_role=config.data.validation_ds_role,
     )
-
     train_dl, val_dl = create_data_loaders(
         train_ds, val_ds, num_workers=config.data.num_workers, batch_size=config.data.batch_size)
 
@@ -85,8 +84,6 @@ def train_ltr_model(paths, config):
             valid_dl=val_dl,
             config=config,
             device=dev,
-            output_dir=paths.output_dir,
-            tensorboard_output_path=paths.tensorboard_output_path,
             **asdict(config.training)
         )
 
@@ -142,16 +139,10 @@ def ltr_rank(clicklogs: list[UserActivity], activities: list[UserActivity]):
         shard_id (int): The ID of the current shard (for sharding purposes).
         num_shards (int): The total number of shards.
     """
-    args = Namespace(
-        job_dir="./",
-        run_id=str(int(time.time())),
-        config_file_name="./allRank_config.json"
-    )
-    paths = PathsContainer.from_args(args.job_dir, args.run_id, args.config_file_name)
-    create_output_dirs(paths.output_dir)
-    config = Config.from_json(paths.config_path)
+    config = Config.from_json("./allRank_config.json")
 
-    dataset_path = 'some_dir/'
+    dataset_path = f'.tmp/{uuid.uuid4().hex}/'
+    print(dataset_path)
     qid_mappings = {ua.query for ua in clicklogs} | {ua.query for ua in activities}
     
     # create train.txt and vali.txt
@@ -175,79 +166,68 @@ def ltr_rank(clicklogs: list[UserActivity], activities: list[UserActivity]):
     
     config.data.path = os.path.join(dataset_path, "_normalized")
 
-    # try:
-    model = train_ltr_model(paths, deepcopy(config))
-    # test_ltr_model(model, paths, deepcopy(config))
+    try:
+        model = train_ltr_model(deepcopy(config))
+        # test_ltr_model(model, paths, deepcopy(config))
 
-    test_ds = load_libsvm_dataset_role("test", config.data.path, config.data.slate_length)
-    test_dl = DataLoader(test_ds, batch_size=config.data.batch_size, num_workers=config.data.num_workers, shuffle=False)
+        test_ds = load_libsvm_dataset_role("test", config.data.path, config.data.slate_length)
+        
+        test_dl = DataLoader(test_ds, batch_size=config.data.batch_size, num_workers=config.data.num_workers, shuffle=False)
 
-    model.eval()
-    activity_idx = 0
+        model.eval()
+        activity_idx = 0
 
-    # Create a dictionary mapping queries to their first occurrence index
-    query_to_first_idx = {}
-    for idx, activity in enumerate(activities):
-        if activity.query not in query_to_first_idx:
-            query_to_first_idx[activity.query] = idx
-    
-    with torch.no_grad():
-        for xb, yb, indices in test_dl:
+        # Create a dictionary mapping queries to their first occurrence index
+        query_to_first_idx = {}
+        for idx, activity in enumerate(activities):
+            if activity.query not in query_to_first_idx:
+                query_to_first_idx[activity.query] = idx
+        
+        with torch.no_grad():
+            for xb, yb, indices in test_dl:
 
-            X = xb.type(torch.float32).to(device=dev)
-            y_true = yb.to(device=dev)
-            indices = indices.to(device=dev)
+                X = xb.type(torch.float32).to(device=dev)
+                y_true = yb.to(device=dev)
+                indices = indices.to(device=dev)
 
-            input_indices = torch.ones_like(y_true).type(torch.long)
-            mask = (y_true == losses.PADDED_Y_VALUE)
-            scores = model.score(X, mask, input_indices)
+                input_indices = torch.ones_like(y_true).type(torch.long)
+                mask = (y_true == losses.PADDED_Y_VALUE)
+                scores = model.score(X, mask, input_indices)
 
-            # Iterate over each query in the batch
-            for i in range(scores.size(0)):
-                while query_to_first_idx[activities[activity_idx].query] < activity_idx:
-                    activities[activity_idx].results = activities[
-                            query_to_first_idx[activities[activity_idx].query]
-                        ].results
+                # Iterate over each query in the batch
+                for i in range(scores.size(0)):
+                    while query_to_first_idx[activities[activity_idx].query] < activity_idx:
+                        activities[activity_idx].results = activities[
+                                query_to_first_idx[activities[activity_idx].query]
+                            ].results
+                        activity_idx += 1
+
+                    slate_scores = scores[i]
+                    slate_indices = indices[i]
+                    slate_mask = mask[i]
+                    
+                    valid_scores = slate_scores[~slate_mask]
+                    valid_indices = slate_indices[~slate_mask]
+                    
+                    # if valid_scores.numel() == 0:
+                    #     print(f"Query has no valid documents.")
+                    #     continue
+                    
+                    # Compute the rankings
+                    _, sorted_idx = torch.sort(valid_scores, descending=True)
+                    sorted_original_indices = valid_indices[sorted_idx]
+
+                    sorted_indices = sorted_original_indices.cpu().tolist()
+
+                    activities[activity_idx].results = [
+                        activities[activity_idx].results[i] for i in sorted_indices
+                    ]
                     activity_idx += 1
 
-                slate_scores = scores[i]
-                slate_indices = indices[i]
-                slate_mask = mask[i]
-                
-                valid_scores = slate_scores[~slate_mask]
-                valid_indices = slate_indices[~slate_mask]
-                
-                # if valid_scores.numel() == 0:
-                #     print(f"Query has no valid documents.")
-                #     continue
-                
-                # Compute the rankings
-                _, sorted_idx = torch.sort(valid_scores, descending=True)
-                sorted_original_indices = valid_indices[sorted_idx]
-
-                sorted_indices = sorted_original_indices.cpu().tolist()
-
-                activities[activity_idx].results = [
-                    activities[activity_idx].results[i] for i in sorted_indices
-                ]
-                activity_idx += 1
-
-
-    # for activity in activities:
-    #     query_id = list(unique_queries).index(activity.query)
-    #     if query_id in rankings:
-    #         # Get the new order from rankings
-    #         new_order = rankings[query_id]
-    #         # Reorder the results according to the rankings
-    #         reordered_results = [activity.results[i] for i in new_order]
-    #         # Replace the original results with reordered ones
-    #         activity.results = reordered_results
-
-    return activities
-
-    # except Exception as e:
-    #     raise e
-    # finally:
-    #     shutil.rmtree(dataset_path, ignore_errors=True)
+    except Exception as e:
+        raise e
+    finally:
+        pass
+        # shutil.rmtree(dataset_path, ignore_errors=True)
 
     return activities

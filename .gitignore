@@ -1,6 +1,7 @@
 __pycache__/
 .idea/
 .vscode/
+.tmp/
 crawl/
 tribler_data/
 results/

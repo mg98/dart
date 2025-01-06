@@ -52,18 +52,25 @@ def mean_ndcg(user_activities, k=None):
 def chronological_eval(user_activities, rank_func, batch_size=64, k=10):
     user_activities.sort(key=lambda ua: ua.timestamp)
 
+    # first index at which 5 distinct queries are seen (required to take 0.8/0.2 splits)
+    offset = next(
+        idx for idx, _ in enumerate(user_activities)
+        if len({a.query for a in user_activities[:idx+1]}) == 5
+    )
+
     # Move the processing logic to a separate function
     def process_batch(i, user_activities, rank_func):
-        batch_start = i * batch_size
-        batch_end = min(batch_start + batch_size, len(user_activities))
+        batch_start = 18#(i + 1) * batch_size
+        batch_end = 19#min(batch_start + batch_size, len(user_activities))
+        print("Batch start: ", batch_start, "Batch end: ", batch_end)
         ranked_user_activities = rank_func(user_activities[:batch_start], user_activities[batch_start:batch_end])
         return mean_ndcg(ranked_user_activities, k)
 
     # Run parallel computation with tqdm progress bar
-    ndcgs = Parallel(n_jobs=-1)(
-        delayed(process_batch)(i, user_activities, rank_func)
-        for i in tqdm(range(len(user_activities) // batch_size), desc="Processing batches")
-    )
+    ndcgs = [
+        process_batch(i, user_activities, rank_func)
+        for i in tqdm(range(offset, len(user_activities) // batch_size - 1), desc="Processing batches")
+    ]
     
     return ndcgs
 
@@ -98,12 +105,12 @@ if __name__ == "__main__":
     print("Loading user activities...")
     with open('user_activities.pkl', 'rb') as f:
         user_activities = pickle.load(f)
-    user_activities = user_activities[:300]
+    user_activities = user_activities[:500]
     print(f"Loaded {len(user_activities)} user activities.")
 
     ranking_algos = {
-        "Tribler": tribler_rank,
-        "Random": random_rank,
+        # "Tribler": tribler_rank, # must be first
+        # "Random": random_rank,
         "LTR": ltr_rank,
         "Panaché": panache_rank,
         "DINX": dinx_rank,
@@ -113,21 +120,23 @@ if __name__ == "__main__":
     }
 
     all_ndcgs = {}
-
-    np.random.shuffle(user_activities)
     split_idx = int(0.8 * len(user_activities))
     
     for algo_name, ranking_algo in ranking_algos.items():
         print(f"============{algo_name}=============")
 
-        for k in K_RANGE:
-            reranked_activities = ranking_algo(
-                user_activities[:split_idx],
-                user_activities[split_idx:]
-            )
-            ndcgs = mean_ndcg(reranked_activities, k=k)
-            print(f"nDCG@{k}: {np.mean(ndcgs)}")
-        # ndcgs = chronological_eval(user_activities, ranking_algo, batch_size=1)
+        # for k in K_RANGE:
+        #     reranked_activities = ranking_algo(
+        #         user_activities[:split_idx],
+        #         user_activities[split_idx:]
+        #     )
+        #     ndcgs = mean_ndcg(reranked_activities, k=k)
+        #     print(f"nDCG@{k}: {np.mean(ndcgs)}")
+        
+        ndcgs = chronological_eval(user_activities, ranking_algo, batch_size=1)
         all_ndcgs[algo_name] = ndcgs
+
+        # shuffle here, so tribler_rank gets original order
+        np.random.shuffle(user_activities)
     
     plot_ndcg(all_ndcgs, filename='combined_results.png')
