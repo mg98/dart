@@ -12,8 +12,6 @@ from baselines.grank import grank_fast as grank
 from baselines.random import random_rank
 from baselines.tribler import tribler_rank
 from baselines.ltr import ltr_rank
-import contextlib
-import os
 print("Done importing modules")
 
 np.random.seed(42)
@@ -49,7 +47,25 @@ def calc_ndcg(ua, k=None):
 def mean_ndcg(user_activities, k=None):
     return np.round(np.mean([calc_ndcg(ua, k) for ua in user_activities]), 3)
 
-def chronological_eval(user_activities, rank_func, batch_size=64, k=10):
+def p2p_eval(user_activities, rank_func):
+    # Sort user activities chronologically
+    user_activities.sort(key=lambda ua: ua.timestamp)
+
+    # Count activities per user
+    user_counts = {}
+    for ua in user_activities:
+        user_counts[ua.issuer] = user_counts.get(ua.issuer, 0) + 1
+    
+    # Find top 8 users with most activities
+    top_users = sorted(user_counts.items(), key=lambda x: x[1], reverse=True)[:8]
+    top_user_ids = {user_id for user_id, _ in top_users}
+    
+    # Filter activities to only include top 8 users
+    user_activities = [ua for ua in user_activities if ua.issuer in top_user_ids]
+
+    return user_activities
+
+def chronological_eval(user_activities, rank_func, batch_size) -> dict[int, list[float]]:
     user_activities.sort(key=lambda ua: ua.timestamp)
 
     # first index at which 5 distinct queries are seen (required to take 0.8/0.2 splits)
@@ -59,39 +75,39 @@ def chronological_eval(user_activities, rank_func, batch_size=64, k=10):
     )
 
     # Move the processing logic to a separate function
-    def process_batch(i, user_activities, rank_func):
-        batch_start = 18#(i + 1) * batch_size
-        batch_end = 19#min(batch_start + batch_size, len(user_activities))
-        print("Batch start: ", batch_start, "Batch end: ", batch_end)
+    def process_batch(i):
+        batch_start = (i + 1) * batch_size
+        batch_end = min(batch_start + batch_size, len(user_activities))
         ranked_user_activities = rank_func(user_activities[:batch_start], user_activities[batch_start:batch_end])
-        return mean_ndcg(ranked_user_activities, k)
-
-    # Run parallel computation with tqdm progress bar
-    ndcgs = [
-        process_batch(i, user_activities, rank_func)
-        for i in tqdm(range(offset, len(user_activities) // batch_size - 1), desc="Processing batches")
-    ]
+        ndcgs = {k: mean_ndcg(ranked_user_activities, k) for k in K_RANGE}
+        return ndcgs
     
+    # Sequential processing if the ranking is fast, parallel for slow operations
+    if rank_func.__name__ == 'ltr_rank':
+        ndcgs = Parallel(n_jobs=4)(
+            delayed(process_batch)(i)
+            for i in tqdm(range(offset, len(user_activities) // batch_size - 1), desc="Processing batches")
+        )
+    else:
+        # Sequential processing for faster ranking functions
+        ndcgs = [
+            process_batch(i)
+            for i in tqdm(range(offset, len(user_activities) // batch_size - 1), desc="Processing batches")
+        ]
+
+    # Reorganize ndcgs from list of dicts to dict of lists
+    combined_ndcgs = {}
+    for k in K_RANGE:
+        combined_ndcgs[k] = [batch_ndcgs[k] for batch_ndcgs in ndcgs]
+    ndcgs = combined_ndcgs
+
     return ndcgs
 
-def simple_eval(user_activities, ranking_fn, k=10):
-    """
-    Sample 80% of the data for training and 20% for testing.
-    Then, rerank the training set and evaluate the test set.
-    """
-    np.random.shuffle(user_activities)
-    split_idx = int(0.8 * len(user_activities))
-    reranked_activities = ranking_fn(
-        user_activities[:split_idx],
-        user_activities[split_idx:]
-    )
-    return mean_ndcg(reranked_activities, k=k)
-
-def plot_ndcg(ndcgs_dict, window_size=1000, filename='combined_plot.png'):
+def plot_ndcg(ndcgs_dict, k=10, window_size=1000, filename='combined_plot.png'):
     plt.figure(figsize=(12, 8))
     
     for algo_name, ndcgs in ndcgs_dict.items():
-        smoothed_ndcgs = np.convolve(ndcgs, np.ones(window_size)/window_size, mode='valid')
+        smoothed_ndcgs = np.convolve(ndcgs[k], np.ones(window_size)/window_size, mode='valid')
         plt.plot(range(len(smoothed_ndcgs)), smoothed_ndcgs, label=algo_name)
     
     plt.xlabel('Number of Training Examples')
@@ -105,12 +121,13 @@ if __name__ == "__main__":
     print("Loading user activities...")
     with open('user_activities.pkl', 'rb') as f:
         user_activities = pickle.load(f)
-    user_activities = user_activities[:500]
+    np.random.shuffle(user_activities)
+    # user_activities = user_activities[:800]
     print(f"Loaded {len(user_activities)} user activities.")
 
     ranking_algos = {
-        # "Tribler": tribler_rank, # must be first
-        # "Random": random_rank,
+        "Tribler": tribler_rank, # must be first
+        "Random": random_rank,
         "LTR": ltr_rank,
         "Panaché": panache_rank,
         "DINX": dinx_rank,
@@ -121,22 +138,23 @@ if __name__ == "__main__":
 
     all_ndcgs = {}
     split_idx = int(0.8 * len(user_activities))
-    
+
     for algo_name, ranking_algo in ranking_algos.items():
         print(f"============{algo_name}=============")
 
-        # for k in K_RANGE:
-        #     reranked_activities = ranking_algo(
-        #         user_activities[:split_idx],
-        #         user_activities[split_idx:]
-        #     )
-        #     ndcgs = mean_ndcg(reranked_activities, k=k)
-        #     print(f"nDCG@{k}: {np.mean(ndcgs)}")
+        reranked_activities = ranking_algo(
+            user_activities[:split_idx],
+            user_activities[split_idx:]
+        )
+        for k in K_RANGE:
+            ndcgs = mean_ndcg(reranked_activities, k=k)
+            print(f"nDCG@{k}: {np.mean(ndcgs)}")
         
-        ndcgs = chronological_eval(user_activities, ranking_algo, batch_size=1)
+        ndcgs = chronological_eval(user_activities, ranking_algo, batch_size=8)
         all_ndcgs[algo_name] = ndcgs
 
-        # shuffle here, so tribler_rank gets original order
-        np.random.shuffle(user_activities)
+    with open('chronological_ndcgs_results.pkl', 'wb') as f:
+        pickle.dump(all_ndcgs, f)
     
-    plot_ndcg(all_ndcgs, filename='combined_results.png')
+    for k in K_RANGE:
+        plot_ndcg(all_ndcgs, k=k, filename=f'combined_results_{k}.png', window_size=len(user_activities)//10)

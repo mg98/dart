@@ -16,7 +16,7 @@ def ranking_func(_func=None, *, shuffle=True):
     def _decorate(func):
         @functools.wraps(func)
         def wrapper(arg1, arg2=None):
-            clicklogs = deepcopy(arg1)
+            clicklogs = arg1 #deepcopy(arg1)
             activities = deepcopy(arg2) if arg2 is not None else deepcopy(arg1)
 
             if shuffle:
@@ -113,6 +113,7 @@ class UserActivity:
     chosen_result: UserActivityTorrent
 
     def __init__(self, data: dict):
+        self.issuer = data['issuer']
         self.query = data['query']
         self.timestamp = int(data['timestamp'] / 1000)
         self.results = []
@@ -402,9 +403,4 @@ def normalize_features(ds_path: str,
 
     vali_normalized_path = os.path.join(ds_normalized_path, "vali.txt")
     with open(vali_normalized_path, "w"):
-        x_vali_normalized[13,10] = 0.0
-        x_vali_normalized[14,10] = 0.0
-        x_vali_normalized[15,10] = 0.0
-        a = x_vali_normalized.T
-        a = np.pad(a, ((0, 0), (0, 20 - a.shape[1])))
-        dump_svmlight_file(a, y_vali, vali_normalized_path, query_id=query_ids_vali)
+        dump_svmlight_file(x_vali_normalized.T, y_vali, vali_normalized_path, query_id=query_ids_vali)

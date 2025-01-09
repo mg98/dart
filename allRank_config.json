@@ -1,0 +1,83 @@
+{
+    "model": {
+      "fc_model": {
+        "sizes": [64],
+        "input_norm": false,
+        "activation": null,
+        "dropout": 0.0
+      },
+      "transformer": {
+        "N": 1,
+        "d_ff": 64,
+        "h": 1,
+        "positional_encoding" : null,
+        "dropout": 0.1
+      },
+      "post_model": {
+        "output_activation": "Tanh",
+        "d_output": 1
+      }
+    },
+    "data": {
+      "path": "./tribler_data/_normalized",
+      "validation_ds_role": "vali",
+      "num_workers": 0,
+      "batch_size": 64,
+      "slate_length": 240
+    },
+    "optimizer": {
+      "name": "Adam",
+      "args": {
+        "lr": 0.001
+      }
+    },
+    "lr_scheduler": {
+      "name": "StepLR",
+      "args": {
+        "step_size": 50,
+        "gamma": 0.1
+      }
+    },
+    "training": {
+      "epochs": 100,
+      "early_stopping_patience": 5,
+      "gradient_clipping_norm": null
+    },
+    "val_metric": "ndcg_5",
+    "metrics": [
+      "ndcg_5",
+      "ndcg_10",
+      "ndcg_30",
+      "ndcg_60"
+    ],
+    "loss": {
+      "name": "neuralNDCG",
+      "args": {
+        "temperature": 1.0,
+        "k": null,
+        "powered_relevancies": true,
+        "stochastic": false
+      }
+    },
+    "detect_anomaly": false,
+    "expected_metrics" : {
+      "val": {
+        "ndcg_5": 0.0
+      }
+    },
+    "wandb_project_id": "allRank",
+    "click_model": {
+      "name": "allrank.click_models.cascade_models.DiverseClicksModel",
+      "args": {
+        "inner_click_model": {
+          "name": "allrank.click_models.cascade_models.BaseCascadeModel",
+          "args": {
+            "eta": 1,
+            "threshold": 0.5
+          }
+        },
+        "q_percentile": 0.5
+      }
+    }
+  }
+  

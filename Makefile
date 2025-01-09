@@ -1,6 +1,9 @@
 # Python interpreter
 PYTHON = python
 
+clean:
+	rm -rf .tmp slurm-*.out *.png chronological_ndcgs_results.pkl
+
 fetch:
 	rsync -az mgregori@fs3.das6.tudelft.nl:~/tribler/crawl .
 	$(PYTHON) fetch.py
@@ -9,12 +12,10 @@ fetch:
 push:
 	rsync -az tribler_data/* mgregori@fs3.das6.tudelft.nl:/var/scratch/mgregori/datasets/tribler_crawl/
 
-run-local:
+run: clean
 	$(PYTHON) main.py
 	
 run-slurm:
 	sbatch run.sh
 
-all: fetch run
-
-.PHONY: fetch run all
+.PHONY: clean fetch push run run-slurm

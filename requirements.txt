@@ -5,3 +5,8 @@ joblib
 tqdm
 matplotlib==3.8.4
 scikit-learn
+rank-bm25
+torch
+torchvision
+pyipv8
+-e allRank

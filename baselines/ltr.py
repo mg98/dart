@@ -1,6 +1,6 @@
 import sys
 import os
-import time
+import math
 import shutil
 import uuid
 
@@ -30,7 +30,6 @@ from common import UserActivity, ranking_func, split_dataset_by_qids, normalize_
 from ltr_helper import LTRDatasetMaker, write_records
 
 dev = get_torch_device()
-
 
 def shard_dataset(dataset, shard_id, num_shards):
     """
@@ -139,10 +138,10 @@ def ltr_rank(clicklogs: list[UserActivity], activities: list[UserActivity]):
         shard_id (int): The ID of the current shard (for sharding purposes).
         num_shards (int): The total number of shards.
     """
+    # torch.cuda.empty_cache()
     config = Config.from_json("./allRank_config.json")
 
     dataset_path = f'.tmp/{uuid.uuid4().hex}/'
-    print(dataset_path)
     qid_mappings = {ua.query for ua in clicklogs} | {ua.query for ua in activities}
     
     # create train.txt and vali.txt
@@ -162,20 +161,17 @@ def ltr_rank(clicklogs: list[UserActivity], activities: list[UserActivity]):
         "vali": vali_records,
         "test": test_records
     })
+
     normalize_features(dataset_path)
     
     config.data.path = os.path.join(dataset_path, "_normalized")
+    # config.training.early_stopping_patience = 30 / (math.log10(len(clicklogs)) ** 1.5)
 
     try:
         model = train_ltr_model(deepcopy(config))
-        # test_ltr_model(model, paths, deepcopy(config))
 
         test_ds = load_libsvm_dataset_role("test", config.data.path, config.data.slate_length)
-        
         test_dl = DataLoader(test_ds, batch_size=config.data.batch_size, num_workers=config.data.num_workers, shuffle=False)
-
-        model.eval()
-        activity_idx = 0
 
         # Create a dictionary mapping queries to their first occurrence index
         query_to_first_idx = {}
@@ -183,6 +179,8 @@ def ltr_rank(clicklogs: list[UserActivity], activities: list[UserActivity]):
             if activity.query not in query_to_first_idx:
                 query_to_first_idx[activity.query] = idx
         
+        activity_idx = 0
+        model.eval()
         with torch.no_grad():
             for xb, yb, indices in test_dl:
 
@@ -227,7 +225,7 @@ def ltr_rank(clicklogs: list[UserActivity], activities: list[UserActivity]):
     except Exception as e:
         raise e
     finally:
-        pass
-        # shutil.rmtree(dataset_path, ignore_errors=True)
+        # torch.cuda.empty_cache()
+        shutil.rmtree(dataset_path, ignore_errors=True)
 
     return activities

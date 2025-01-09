@@ -2,13 +2,17 @@ from collections import defaultdict
 from common import UserActivity, ranking_func
 from functools import cache
 
+@cache
+def cached_query_split(query):
+    return query.lower().split()
+
 def compute_hit_counts(activities: list[UserActivity]):
     """
     Compute the hit counts for each keyword in each query.
     """
     hit_counts = defaultdict(lambda: defaultdict(int)) # keyword -> infohash -> count
     for ua in activities:
-        for keyword in ua.query.lower().split():
+        for keyword in cached_query_split(ua.query):
             hit_counts[keyword][ua.chosen_result.infohash] += 1
     return hit_counts
 
@@ -18,10 +22,6 @@ def panache_rank(clicklogs: list[UserActivity], activities: list[UserActivity] =
     Optimized Panaché's ranking by keyword hit counts.
     """
     hit_counts = compute_hit_counts(clicklogs)
-
-    @cache
-    def cached_query_split(query):
-        return query.lower().split()
 
     # Re-rank activities
     for ua in activities:

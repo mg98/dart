@@ -5,16 +5,12 @@ from common import ranking_func
 
 @ranking_func
 def maay_rank(clicklogs: list, activities: list = None):
-    # Preprocess queries and extract unique words and documents
-    # Convert everything to lowercase once.
-    for ua in clicklogs:
-        ua.query = ua.query.lower()
 
     # Extract sets of words and documents
     W = set()
     D = set()
     for ua in clicklogs:
-        query_words = ua.query.split()
+        query_words = ua.query.lower().split()
         W.update(query_words)
         if ua.chosen_result:
             D.add(ua.chosen_result.infohash)
@@ -31,7 +27,7 @@ def maay_rank(clicklogs: list, activities: list = None):
     for ua in clicklogs:
         b = ua.issuer
         nodes.add(b)
-        query_words = ua.query.split()
+        query_words = ua.query.lower().split()
         # Update claims
         for w in query_words:
             claims[b][w] += 1
@@ -83,10 +79,10 @@ def maay_rank(clicklogs: list, activities: list = None):
         return (z, d, s)
 
     # Parallelize pre-computation of matching scores
-    results = Parallel(n_jobs=-1)(
-        delayed(compute_matching_for_pair)(z, d, W)
-        for z in nodes for d in D
-    )
+    results = []
+    for z in nodes:
+        for d in D:
+            results.append(compute_matching_for_pair(z, d, W))
 
     matching_scores = defaultdict(lambda: defaultdict(int))
     for z, d, s in results:
@@ -122,9 +118,6 @@ def maay_rank(clicklogs: list, activities: list = None):
 
 @ranking_func
 def maay_rank_numpy(clicklogs: list, activities: list = None):
-    # Preprocess queries
-    for ua in clicklogs:
-        ua.query = ua.query.lower()
 
     # Extract sets of words and documents, and nodes
     W_set = set()
@@ -132,7 +125,7 @@ def maay_rank_numpy(clicklogs: list, activities: list = None):
     nodes_set = set()
 
     for ua in clicklogs:
-        query_words = ua.query.split()
+        query_words = ua.query.lower().split()
         W_set.update(query_words)
         if ua.chosen_result:
             D_set.add(ua.chosen_result.infohash)
@@ -159,7 +152,7 @@ def maay_rank_numpy(clicklogs: list, activities: list = None):
     # Populate claims and votes
     for ua in clicklogs:
         b_idx = b2i[ua.issuer]
-        query_words = ua.query.split()
+        query_words = ua.query.lower().split()
         for w in query_words:
             w_idx = w2i[w]
             claims_array[b_idx, w_idx] += 1

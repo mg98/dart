@@ -3,10 +3,12 @@ from sklearn.metrics import ndcg_score
 import numpy as np
 from joblib import Parallel, delayed
 from tqdm import tqdm
-from baselines.panache import panache_rank, panache_rank_fast
-from baselines.dinx import dinx_rank
-from baselines.maay import maay_rank, maay_rank_numpy
-from baselines.grank import grank
+from baselines.panache import panache_rank
+from baselines.dinx import dinx_rank, dinx_rank_by_seeders
+from baselines.maay import maay_rank_numpy as maay_rank
+from baselines.grank import grank_fast as grank
+from baselines.random import random_rank
+from baselines.tribler import tribler_rank
 from baselines.ltr import ltr_rank
 import time
 
@@ -37,30 +39,33 @@ def mean_ndcg(user_activities):
 if __name__ == "__main__":
     with open('user_activities.pkl', 'rb') as f:
         user_activities = pickle.load(f)
+    user_activities = user_activities[:100]
 
-    user_activities.sort(key=lambda ua: ua.timestamp)
+    ranking_algos = {
+        "Tribler": tribler_rank, # must be first
+        "Random": random_rank,
+        "LTR": ltr_rank,
+        "Panaché": panache_rank,
+        "DINX": dinx_rank,
+        "DINX (seeders)": dinx_rank_by_seeders,
+        "MAAY": maay_rank,
+        "G-Rank": grank
+    }
 
-    print("============Tribler=============")
-    print(f"Average nDCG: {mean_ndcg(user_activities)}")
+    all_ndcgs = {}
+    split_idx = int(0.8 * len(user_activities))
+    np.random.shuffle(user_activities)
 
-    print("============Random=============")
-    for ua in user_activities:
-        np.random.shuffle(ua.results)
-    print(f"Average nDCG: {mean_ndcg(user_activities)}")
+    for algo_name, ranking_algo in ranking_algos.items():
+        print(f"============{algo_name}=============")
 
-    print("============Panaché=============")
-    start = time.time()
-    ranked_user_activities = panache_rank(user_activities)
-    end = time.time()
-    print(f"Time taken: {end - start:.2f} seconds")
-    print(f"Average nDCG: {mean_ndcg(ranked_user_activities)}")
-
-    print("============Panaché Fast=============")
-    start = time.time()
-    ranked_user_activities = panache_rank_fast(user_activities)
-    end = time.time()
-    print(f"Time taken: {end - start:.2f} seconds")
-    print(f"Average nDCG: {mean_ndcg(ranked_user_activities)}")
+        start_time = time.time()
+        reranked_activities = ranking_algo(
+            user_activities[:split_idx],
+            user_activities[split_idx:]
+        )
+        elapsed_time = time.time() - start_time
+        print(f"Ranking took {elapsed_time:.2f} seconds")
 
 
     
