@@ -98,7 +98,7 @@ def maay_rank(clicklogs: list, activities: list = None):
 
     for ua in activities:
         z = ua.issuer
-        query_words = ua.query.split()
+        query_words = ua.query.lower().split()
 
         # Precompute scores once per result
         scored_results = []
@@ -248,3 +248,141 @@ def maay_rank_numpy(clicklogs: list, activities: list = None):
         ua.results = [r for (_, r) in scored_results]
 
     return activities
+
+
+class MAAY:
+    def __init__(self, clicklogs):
+        # Extract sets of words, documents, and nodes
+        W_set = set()
+        D_set = set()
+        nodes_set = set()
+
+        for ua in clicklogs:
+            query_words = ua.query.lower().split()
+            W_set.update(query_words)
+            if ua.chosen_result:
+                D_set.add(ua.chosen_result.infohash)
+            nodes_set.add(ua.issuer)
+
+        # Create ordered lists and mapping dictionaries
+        self.W = list(W_set)
+        self.D = list(D_set)
+        self.nodes = list(nodes_set)
+        
+        self.w2i = {w: i for i, w in enumerate(self.W)}
+        self.d2i = {d: i for i, d in enumerate(self.D)}
+        self.b2i = {b: i for i, b in enumerate(self.nodes)}
+
+        num_b = len(self.nodes)
+        num_w = len(self.W)
+        num_d = len(self.D)
+
+        # Initialize and populate arrays
+        claims_array = np.zeros((num_b, num_w), dtype=float)
+        votes_array = np.zeros((num_d, num_w), dtype=float)
+
+        for ua in clicklogs:
+            b_idx = self.b2i[ua.issuer]
+            query_words = ua.query.lower().split()
+            for w in query_words:
+                w_idx = self.w2i[w]
+                claims_array[b_idx, w_idx] += 1
+            if ua.chosen_result:
+                d_idx = self.d2i[ua.chosen_result.infohash]
+                for w in query_words:
+                    w_idx = self.w2i[w]
+                    votes_array[d_idx, w_idx] += 1
+
+        # Compute totals
+        sum_claims_per_b = claims_array.sum(axis=1)
+        sum_votes_per_d = votes_array.sum(axis=1)
+        votes_per_w = votes_array.sum(axis=0)
+
+        # Compute matrices
+        with np.errstate(divide='ignore', invalid='ignore'):
+            self.SP_matrix = np.divide(claims_array, sum_claims_per_b[:, None], 
+                                     where=(sum_claims_per_b[:,None]!=0))
+            self.SP_matrix = np.nan_to_num(self.SP_matrix)
+
+            self.REL_matrix = np.divide(votes_array, sum_votes_per_d[:, None], 
+                                      where=(sum_votes_per_d[:,None]!=0))
+            self.REL_matrix = np.nan_to_num(self.REL_matrix)
+
+            self.POP_matrix = np.divide(votes_array, votes_per_w[None, :], 
+                                      where=(votes_per_w[None,:]!=0))
+            self.POP_matrix = np.nan_to_num(self.POP_matrix)
+
+        # Compute matching scores
+        self.matching_scores = self.SP_matrix @ self.REL_matrix.T
+
+    def SP(self, b, query):
+        """
+        Get aggregated specificity of all words in a query for user b.
+        Specificity measures how characteristic query words are for this user's search behavior.
+        
+        Args:
+            b: user/issuer
+            query: search query string
+        Returns:
+            float: average specificity across all known words in query
+        """
+        if b not in self.b2i:
+            return 0.0
+        
+        words = query.lower().split()
+        known_words = [w for w in words if w in self.w2i]
+        if not known_words:
+            return 0.0
+        
+        specs = [self.SP_matrix[self.b2i[b], self.w2i[w]] for w in known_words]
+        return sum(specs) / len(known_words)
+
+    def REL(self, d, query):
+        """
+        Get aggregated relevance of all query words for document identified by infohash d.
+        Relevance is measured by how often the words appear in successful queries for this document.
+        
+        Args:
+            d: document infohash
+            query: search query string
+        Returns:
+            float: average relevance score across all known words in query
+        """
+        if d not in self.d2i:
+            return 0.0
+        
+        words = query.lower().split()
+        known_words = [w for w in words if w in self.w2i]
+        if not known_words:
+            return 0.0
+        
+        relevances = [self.REL_matrix[self.d2i[d], self.w2i[w]] for w in known_words]
+        return sum(relevances) / len(known_words)
+
+    def POP(self, d, query):
+        """
+        Get aggregated popularity of document d for all words in query.
+        Popularity measures how dominant this document is among all documents for these query words.
+        
+        Args:
+            d: document infohash
+            query: search query string
+        Returns:
+            float: average popularity score across all known words in query
+        """
+        if d not in self.d2i:
+            return 0.0
+        
+        words = query.lower().split()
+        known_words = [w for w in words if w in self.w2i]
+        if not known_words:
+            return 0.0
+        
+        popularities = [self.POP_matrix[self.d2i[d], self.w2i[w]] for w in known_words]
+        return sum(popularities) / len(known_words)
+
+    def matching_score(self, b, d):
+        """Get matching score between user b and document d"""
+        if b not in self.b2i or d not in self.d2i:
+            return 0.0
+        return self.matching_scores[self.b2i[b], self.d2i[d]]

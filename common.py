@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import functools
 import re
+from sklearn.metrics import ndcg_score
 from sklearn.datasets import load_svmlight_file, dump_svmlight_file
 
 np.random.seed(42)
@@ -121,6 +122,14 @@ class UserActivity:
             torrent = UserActivityTorrent(result)
             self.results.append(torrent)
         self.chosen_result = self.results[data['chosen_index']]
+
+    @property
+    def chosen_index(self) -> int:
+        """Returns the index of the chosen result in the results list"""
+        for i, result in enumerate(self.results):
+            if result.infohash == self.chosen_result.infohash:
+                return i
+        return -1
 
     def __repr__(self):
         return (f"UserActivity(issuer={self.issuer}, query={self.query}, "
@@ -261,6 +270,12 @@ class QueryDocumentRelationVector:
     leechers: int = 0
     age: float = 0.0
     query_hit_count: int = 0
+    sp: float = 0.0
+    rel: float = 0.0
+    pop: float = 0.0
+    matching_score: float = 0.0
+    click_count: float = 0.0
+    grank_score: float = 0.0
 
     @property
     def features(self):
@@ -271,7 +286,10 @@ class QueryDocumentRelationVector:
                  self.tf_min, self.tf_max, self.tf_mean, self.tf_sum,
                  self.idf_min, self.idf_max, self.idf_mean, self.idf_sum,
                  self.tf_idf_min, self.tf_idf_max, self.tf_idf_mean, self.tf_idf_sum,
-                 self.tf_variance, self.idf_variance, self.tf_idf_variance, self.age]
+                 self.tf_variance, self.idf_variance, self.tf_idf_variance, 
+                 self.sp, self.rel, self.pop, self.matching_score, 
+                 self.click_count, self.grank_score,
+                 self.age]
 
     def __str__(self):
         return ' '.join(f'{i}:{val}' for i, val in enumerate(self.features))
@@ -404,3 +422,32 @@ def normalize_features(ds_path: str,
     vali_normalized_path = os.path.join(ds_normalized_path, "vali.txt")
     with open(vali_normalized_path, "w"):
         dump_svmlight_file(x_vali_normalized.T, y_vali, vali_normalized_path, query_id=query_ids_vali)
+
+def calc_mrr(ua):
+    """Calculate Mean Reciprocal Rank for a single user activity"""
+    for i, res in enumerate(ua.results):
+        if res.infohash == ua.chosen_result.infohash:
+            return 1.0 / (i + 1)
+    return 0.0
+
+def mean_mrr(user_activities: list[UserActivity]) -> float:
+    return np.mean([calc_mrr(ua) for ua in user_activities])
+
+def calc_ndcg(ua: UserActivity, k=None) -> float:
+    """Calculate nDCG@k for a single user activity
+    Args:
+        ua: user activity
+        k: number of top results to consider. If None, considers all results
+    """
+    true_relevance = [1 if res.infohash == ua.chosen_result.infohash else 0 for res in ua.results]
+    predicted_relevance = [1/np.log2(i+2) for i in range(len(ua.results))]
+    
+    if k is not None:
+        # Truncate both lists to k elements
+        true_relevance = true_relevance[:k]
+        predicted_relevance = predicted_relevance[:k]
+    
+    return ndcg_score([true_relevance], [predicted_relevance])
+
+def mean_ndcg(user_activities: list[UserActivity], k=None) -> float:
+    return np.round(np.mean([calc_ndcg(ua, k) for ua in user_activities]), 3)

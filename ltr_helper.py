@@ -1,6 +1,8 @@
 from rank_bm25 import BM25Okapi
 import pandas as pd
 from baselines.panache import compute_hit_counts
+from baselines.maay import MAAY
+from baselines.dinx import compute_click_counts
 from common import *
 
 EXPORT_PATH = "./ltr_dataset"
@@ -15,9 +17,11 @@ class LTRDatasetMaker:
     def __init__(self, activities: list[UserActivity]):
 
         self.activities = activities
-        self.qid_mappings = {ua.query for ua in self.activities}
+        self.qid_mappings = {(ua.query, ua.issuer) for ua in self.activities}
         self._build_corpus()
         self.hit_counts = compute_hit_counts(self.activities)
+        self.maay = MAAY(self.activities)
+        self.click_counts = compute_click_counts(self.activities)
 
         # Create DataFrame with user activity data
         self.df = pd.DataFrame([
@@ -46,8 +50,8 @@ class LTRDatasetMaker:
 
     def write_queries(self, export_path: str):
         with open(f"{export_path}/queries.tsv", "w") as f:
-            for qid, query in enumerate(self.qid_mappings):
-                f.write(f"qid:{qid}\t{query}\n")
+            for qid, (query, user) in enumerate(self.qid_mappings):
+                f.write(f"qid:{qid}\t{query}\t{user}\n")
 
     def _build_corpus(self):
         unique_documents = {doc.infohash: doc for ua in self.activities for doc in ua.results}.values()
@@ -58,7 +62,7 @@ class LTRDatasetMaker:
 
     def compile_records(self) -> list[ClickThroughRecord]:
         # Group by qid and aggregate, keeping only results and chosen_result counts
-        aggregated_df = self.df.groupby('query', sort=False).agg({
+        aggregated_df = self.df.groupby(['query', 'user'], sort=False).agg({
             'results': 'first',
             'timestamp': 'first',
             'chosen_result': lambda x: dict(pd.Series(x).value_counts()) # infohash -> count
@@ -67,7 +71,7 @@ class LTRDatasetMaker:
         records = []
 
         for _, row in aggregated_df.iterrows():
-            qid = list(self.qid_mappings).index(row['query'])
+            qid = list(self.qid_mappings).index((row['query'], row['user']))
             query_terms = tokenize(row['query'])
             doc_indices = [self.doc_ids.index(result.infohash) for result in row['results']]
             bm25_scores = self.bm25.get_batch_scores(query_terms, doc_indices)
@@ -86,7 +90,14 @@ class LTRDatasetMaker:
                 v.leechers = result.leechers
                 v.age = row['timestamp'] - result.torrent_info.timestamp
                 v.bm25 = bm25_scores[i]
-                v.query_hit_count = sum(self.hit_counts[k][result.infohash] for k in query_terms)
+                v.query_hit_count = sum(self.hit_counts[term][result.infohash] for term in query_terms)
+                
+                v.sp = self.maay.SP(result.infohash, row['query'])
+                v.rel = self.maay.REL(result.infohash, row['query'])
+                v.pop = self.maay.POP(result.infohash, row['query'])
+                v.matching_score = self.maay.matching_score(row['user'], result.infohash)
+
+                v.click_count = self.click_counts[result.infohash]
 
                 # aggregate tf idf features over all query terms
                 tfidf_results = [self.tfidf.get_tf_idf(result.infohash, term) for term in query_terms]

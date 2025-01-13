@@ -88,47 +88,6 @@ def train_ltr_model(config):
 
     return model
 
-def test_ltr_model(model, paths, config):
-    datasets = {"test": load_libsvm_dataset_role("test", config.data.path, config.data.slate_length)}
-
-    click_model = instantiate_from_recursive_name_args(name_args=config.click_model)
-    with contextlib.redirect_stdout(None):
-        ranked_slates = rank_slates(datasets, model, config)
-    clicked_slates = click_on_slates(ranked_slates["test"], click_model, include_empty=False)
-
-    Xs, ys = clicked_slates
-    
-    metrics = {
-        "ndcg_5": [],
-        "ndcg_10": [],
-        "ndcg_30": [],
-        "ndcg_60": []
-    }
-    for X, y in zip(Xs, ys):
-        ndcg_scores = ndcg(
-            torch.arange(start=len(y), end=0, step=-1, dtype=torch.float32)[None, :],
-            torch.tensor(y)[None, :],
-            ats=[5, 10, 30, 60]
-        )
-        
-        metrics["ndcg_5"].append(ndcg_scores[0][0].item())
-        metrics["ndcg_10"].append(ndcg_scores[0][1].item())
-        metrics["ndcg_30"].append(ndcg_scores[0][2].item())
-        metrics["ndcg_60"].append(ndcg_scores[0][3].item())
-
-    # calculate metrics
-    metrics = {k: sum(v) / len(v) for k, v in metrics.items()}
-    print(metrics)
-    
-    # metered_slates = {role: metrics_on_clicked_slates(slates) for role, slates in clicked_slates.items()}  # type: ignore
-    # for role, metrics in metered_slates.items():
-    #     import pandas as pd
-    #     metrics_df = pd.DataFrame(metrics)
-    #     metrics_df.to_csv(os.path.join(paths.output_dir, f"{role}_metrics.csv"), index=False)
-    #     print(os.path.join(paths.output_dir, f"{role}_metrics_mean.csv"))
-    #     pd.DataFrame(metrics_df.mean()).T.to_csv(os.path.join(paths.output_dir, f"{role}_metrics_mean.csv"), index=False)
-
-
 @ranking_func
 def ltr_rank(clicklogs: list[UserActivity], activities: list[UserActivity]):
     """
@@ -142,7 +101,7 @@ def ltr_rank(clicklogs: list[UserActivity], activities: list[UserActivity]):
     config = Config.from_json("./allRank_config.json")
 
     dataset_path = f'.tmp/{uuid.uuid4().hex}/'
-    qid_mappings = {ua.query for ua in clicklogs} | {ua.query for ua in activities}
+    qid_mappings = {(ua.query, ua.issuer) for ua in clicklogs} | {(ua.query, ua.issuer) for ua in activities}
     
     # create train.txt and vali.txt
     ltrdm_clicklogs = LTRDatasetMaker(clicklogs)
@@ -173,11 +132,12 @@ def ltr_rank(clicklogs: list[UserActivity], activities: list[UserActivity]):
         test_ds = load_libsvm_dataset_role("test", config.data.path, config.data.slate_length)
         test_dl = DataLoader(test_ds, batch_size=config.data.batch_size, num_workers=config.data.num_workers, shuffle=False)
 
-        # Create a dictionary mapping queries to their first occurrence index
-        query_to_first_idx = {}
+        # Create a dictionary mapping (query,user) pairs to their first occurrence index
+        query_user_to_first_idx = {}
         for idx, activity in enumerate(activities):
-            if activity.query not in query_to_first_idx:
-                query_to_first_idx[activity.query] = idx
+            key = (activity.query, activity.issuer)
+            if key not in query_user_to_first_idx:
+                query_user_to_first_idx[key] = idx
         
         activity_idx = 0
         model.eval()
@@ -194,11 +154,13 @@ def ltr_rank(clicklogs: list[UserActivity], activities: list[UserActivity]):
 
                 # Iterate over each query in the batch
                 for i in range(scores.size(0)):
-                    while query_to_first_idx[activities[activity_idx].query] < activity_idx:
+                    key = (activities[activity_idx].query, activities[activity_idx].issuer)
+                    while query_user_to_first_idx[key] < activity_idx:
                         activities[activity_idx].results = activities[
-                                query_to_first_idx[activities[activity_idx].query]
+                                query_user_to_first_idx[key]
                             ].results
                         activity_idx += 1
+                        key = (activities[activity_idx].query, activities[activity_idx].issuer)
 
                     slate_scores = scores[i]
                     slate_indices = indices[i]
@@ -206,10 +168,6 @@ def ltr_rank(clicklogs: list[UserActivity], activities: list[UserActivity]):
                     
                     valid_scores = slate_scores[~slate_mask]
                     valid_indices = slate_indices[~slate_mask]
-                    
-                    # if valid_scores.numel() == 0:
-                    #     print(f"Query has no valid documents.")
-                    #     continue
                     
                     # Compute the rankings
                     _, sorted_idx = torch.sort(valid_scores, descending=True)

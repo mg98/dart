@@ -20,8 +20,8 @@ for user in os.listdir("crawl"):
             data = json.load(f)
             if data["chosen_index"] == -1:
                 continue
+            data['issuer'] = user
             ua = UserActivity(data)
-            ua.issuer = user
             user_activities.append(ua)
 
 fetch_torrent_infos(user_activities)

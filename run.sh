@@ -2,7 +2,7 @@
 
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --time=120:00:00
+#SBATCH --time=0
 #SBATCH --cpus-per-task=4
 
 module load cuda12.3/toolkit/12.3
