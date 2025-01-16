@@ -14,7 +14,7 @@
         "dropout": 0.1
       },
       "post_model": {
-        "output_activation": "Tanh",
+        "output_activation": "Sigmoid",
         "d_output": 1
       }
     },

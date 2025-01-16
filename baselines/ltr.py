@@ -24,35 +24,18 @@ from attr import asdict
 from functools import partial
 from torch import optim
 from copy import deepcopy
-import contextlib
+import numpy as np
 
 from common import UserActivity, ranking_func, split_dataset_by_qids, normalize_features
 from ltr_helper import LTRDatasetMaker, write_records
 
+# torch.manual_seed(42)
+# torch.cuda.manual_seed(42)
+# torch.mps.manual_seed(42)
+# torch.backends.cudnn.deterministic = True
+# torch.backends.cudnn.benchmark = False
+
 dev = get_torch_device()
-
-def shard_dataset(dataset, shard_id, num_shards):
-    """
-    Splits the dataset into shards.
-    
-    Args:
-        dataset: The original dataset.
-        shard_id: The ID of the shard.
-        num_shards: The total number of shards.
-    
-    Returns:
-        A subset of the dataset corresponding to the shard.
-    """
-    # Calculate shard size
-    total_size = len(dataset)
-    shard_size = total_size // num_shards
-
-    # Determine the start and end indices of the current shard
-    start_idx = shard_id * shard_size
-    end_idx = (shard_id + 1) * shard_size if shard_id < num_shards - 1 else total_size
-
-    # Return the subset of the dataset for the current shard
-    return torch.utils.data.Subset(dataset, range(start_idx, end_idx)).dataset
 
 def train_ltr_model(config):
     train_ds, val_ds = load_libsvm_dataset(
@@ -97,7 +80,6 @@ def ltr_rank(clicklogs: list[UserActivity], activities: list[UserActivity]):
         shard_id (int): The ID of the current shard (for sharding purposes).
         num_shards (int): The total number of shards.
     """
-    # torch.cuda.empty_cache()
     config = Config.from_json("./allRank_config.json")
 
     dataset_path = f'.tmp/{uuid.uuid4().hex}/'
@@ -122,9 +104,7 @@ def ltr_rank(clicklogs: list[UserActivity], activities: list[UserActivity]):
     })
 
     normalize_features(dataset_path)
-    
     config.data.path = os.path.join(dataset_path, "_normalized")
-    # config.training.early_stopping_patience = 30 / (math.log10(len(clicklogs)) ** 1.5)
 
     try:
         model = train_ltr_model(deepcopy(config))
@@ -154,11 +134,20 @@ def ltr_rank(clicklogs: list[UserActivity], activities: list[UserActivity]):
 
                 # Iterate over each query in the batch
                 for i in range(scores.size(0)):
+                    # if (query, user) has been processed in a previous iteration, copy the results, and move forward
                     key = (activities[activity_idx].query, activities[activity_idx].issuer)
                     while query_user_to_first_idx[key] < activity_idx:
-                        activities[activity_idx].results = activities[
-                                query_user_to_first_idx[key]
-                            ].results
+                        # Get the ranking from the previous activity with same query/user
+                        prev_results = activities[query_user_to_first_idx[key]].results
+                        curr_results = activities[activity_idx].results
+                        
+                        # Create mapping from result to position in prev_results
+                        result_to_pos = {r: i for i, r in enumerate(prev_results)}
+                        
+                        # Sort current results based on positions in prev_results
+                        activities[activity_idx].results = sorted(curr_results, 
+                            key=lambda x: result_to_pos.get(x, len(prev_results)))
+                        
                         activity_idx += 1
                         key = (activities[activity_idx].query, activities[activity_idx].issuer)
 

@@ -37,7 +37,7 @@ print("Generating user-specific datasets...")
 
 # Get top users by number of queries
 user_query_counts = ltrdm.df.groupby('user')['query'].nunique()
-top_users = user_query_counts.nlargest(8).index
+top_users = user_query_counts.nlargest(32).index
 original_df = ltrdm.df.copy()
 
 # Create per-user datasets
@@ -99,3 +99,11 @@ except Exception as e:
 
 finally:
     shutil.rmtree(temp_dir)
+
+# Assert no empty dataset files exist
+by_user_dir = os.path.join(EXPORT_PATH, "by_user")
+for root, dirs, files in os.walk(by_user_dir):
+    for file in files:
+        if file in ['train.txt', 'vali.txt', 'test.txt']:
+            file_path = os.path.join(root, file)
+            assert os.path.getsize(file_path) > 0, f"Found empty dataset file: {file_path}"

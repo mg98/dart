@@ -11,7 +11,7 @@ import re
 from sklearn.metrics import ndcg_score
 from sklearn.datasets import load_svmlight_file, dump_svmlight_file
 
-np.random.seed(42)
+# np.random.seed(42)
 
 def ranking_func(_func=None, *, shuffle=True):
     def _decorate(func):
