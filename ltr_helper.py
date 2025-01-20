@@ -1,8 +1,10 @@
 from rank_bm25 import BM25Okapi
+import math
 import pandas as pd
 from baselines.panache import compute_hit_counts
 from baselines.maay import MAAY
 from baselines.dinx import compute_click_counts
+from joblib import Parallel, delayed
 from common import *
 
 EXPORT_PATH = "./ltr_dataset"
@@ -34,6 +36,17 @@ class LTRDatasetMaker:
             }
             for ua in self.activities
         ])
+    
+    @property
+    def qid_mappings(self):
+        return self._qid_mappings
+
+    @qid_mappings.setter
+    def qid_mappings(self, value):
+        """
+        Sorted for consistent qid assignments in parallel processing.
+        """
+        self._qid_mappings = tuple(sorted(value))
 
     def generate(self, export_path: str, normalize: bool = True):
         records = self.compile_records()
@@ -65,19 +78,21 @@ class LTRDatasetMaker:
         aggregated_df = self.df.groupby(['query', 'user'], sort=False).agg({
             'results': 'first',
             'timestamp': 'first',
-            'chosen_result': lambda x: dict(pd.Series(x).value_counts()) # infohash -> count
+            'chosen_result': lambda x: dict(pd.Series(x).value_counts())
         }).reset_index()
 
-        records = []
-
-        for _, row in aggregated_df.iterrows():
-            qid = list(self.qid_mappings).index((row['query'], row['user']))
+        def process_row(row, shared_resources):
+            # Unpack shared resources
+            bm25, tfidf, hit_counts, maay, click_counts, doc_ids, qid_mappings = shared_resources
+            
+            qid = qid_mappings.index((row['query'], row['user']))
             query_terms = tokenize(row['query'])
-            doc_indices = [self.doc_ids.index(result.infohash) for result in row['results']]
-            bm25_scores = self.bm25.get_batch_scores(query_terms, doc_indices)
-
+            doc_indices = [doc_ids.index(result.infohash) for result in row['results']]
+            
+            bm25_scores = bm25.get_batch_scores(query_terms, doc_indices)
+            
+            row_records = []
             for i, result in enumerate(row['results']):
-
                 record = ClickThroughRecord()
                 record.qid = qid
                 if isinstance(row['chosen_result'], str):
@@ -90,17 +105,17 @@ class LTRDatasetMaker:
                 v.leechers = result.leechers
                 v.age = row['timestamp'] - result.torrent_info.timestamp
                 v.bm25 = bm25_scores[i]
-                v.query_hit_count = sum(self.hit_counts[term][result.infohash] for term in query_terms)
+                v.query_hit_count = sum(hit_counts[term][result.infohash] for term in query_terms)
                 
-                v.sp = self.maay.SP(result.infohash, row['query'])
-                v.rel = self.maay.REL(result.infohash, row['query'])
-                v.pop = self.maay.POP(result.infohash, row['query'])
-                v.matching_score = self.maay.matching_score(row['user'], result.infohash)
+                v.sp = maay.SP(result.infohash, row['query'])
+                v.rel = maay.REL(result.infohash, row['query'])
+                v.pop = maay.POP(result.infohash, row['query'])
+                v.matching_score = maay.matching_score(row['user'], result.infohash)
 
-                v.click_count = self.click_counts[result.infohash]
+                v.click_count = click_counts[result.infohash]
 
                 # aggregate tf idf features over all query terms
-                tfidf_results = [self.tfidf.get_tf_idf(result.infohash, term) for term in query_terms]
+                tfidf_results = [tfidf.get_tf_idf(result.infohash, term) for term in query_terms]
 
                 v.tf_min = min(r["tf"] for r in tfidf_results)
                 v.tf_max = max(r["tf"] for r in tfidf_results)
@@ -122,8 +137,27 @@ class LTRDatasetMaker:
                 v.tf_idf_variance = sum((r["tf_idf"] - v.tf_idf_mean) ** 2 for r in tfidf_results) / len(tfidf_results) if tfidf_results else 0.0
 
                 record.qdr = v
-                
-                records.append(record)
-                
+                row_records.append(record)
+
+            return row_records
+        
+        # Package shared resources once
+        shared_resources = (
+            self.bm25,
+            self.tfidf,
+            self.hit_counts,
+            self.maay,
+            self.click_counts,
+            self.doc_ids,
+            self.qid_mappings
+        )
+        
+        parallel_records = Parallel(n_jobs=8, batch_size=8)(
+            delayed(process_row)(row, shared_resources)
+            for _, row in aggregated_df.iterrows()
+        )
+
+        records = [record for batch in parallel_records for record in batch]
+        
         return records
     

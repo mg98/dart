@@ -2,7 +2,7 @@
 PYTHON = python
 
 clean:
-	rm -rf .tmp slurm-*.out *.png chronological_ndcgs_results.pkl p2p_el/eval
+	rm -rf .tmp slurm-*.out *.png chronological_ndcgs.pkl p2p_el/eval
 
 fetch:
 	rsync -az mgregori@fs3.das6.tudelft.nl:~/tribler/crawl .

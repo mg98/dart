@@ -7,7 +7,9 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 import functools
+import time
 import re
+from contextlib import contextmanager
 from sklearn.metrics import ndcg_score
 from sklearn.datasets import load_svmlight_file, dump_svmlight_file
 
@@ -23,9 +25,10 @@ def ranking_func(_func=None, *, shuffle=True):
             if shuffle:
                 for ua in clicklogs:
                     np.random.shuffle(ua.results)
-                
                 for ua in activities:
                     np.random.shuffle(ua.results)
+                np.random.shuffle(clicklogs)
+                np.random.shuffle(activities)
 
             return func(clicklogs, activities)
         return wrapper
@@ -451,3 +454,16 @@ def calc_ndcg(ua: UserActivity, k=None) -> float:
 
 def mean_ndcg(user_activities: list[UserActivity], k=None) -> float:
     return np.round(np.mean([calc_ndcg(ua, k) for ua in user_activities]), 3)
+
+@contextmanager
+def timing():
+    """Context manager that measures execution time and formats output as XhYmZs"""
+    start = time.perf_counter()
+    try:
+        yield
+    finally:
+        elapsed = time.perf_counter() - start
+        hours = int(elapsed // 3600)
+        minutes = int((elapsed % 3600) // 60)
+        seconds = int(elapsed % 60)
+        print(f"Time taken: {hours}h{minutes}m{seconds}s")

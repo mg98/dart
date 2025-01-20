@@ -37,6 +37,11 @@ from ltr_helper import LTRDatasetMaker, write_records
 
 dev = get_torch_device()
 
+def print_model_size(model):
+    total_params = sum(p.numel() for p in model.parameters())
+    model_size_kb = total_params * 4 / 1024  # Assuming 4 bytes per parameter
+    print(f"Model size: {model_size_kb:.2f} KB ({total_params:,} parameters)")
+
 def train_ltr_model(config):
     train_ds, val_ds = load_libsvm_dataset(
         input_path=config.data.path,
