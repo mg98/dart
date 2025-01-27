@@ -26,32 +26,43 @@ from torch import optim
 from copy import deepcopy
 import numpy as np
 
-from common import UserActivity, ranking_func, split_dataset_by_qids, normalize_features
-from ltr_helper import LTRDatasetMaker, write_records
+from common import UserActivity, ranking_func, split_dataset_by_qids, normalize_features, QueryDocumentRelationVector, build_corpus
+from ltr_helper import LTRDatasetMaker, write_records, qid_key
 
-# torch.manual_seed(42)
-# torch.cuda.manual_seed(42)
-# torch.mps.manual_seed(42)
-# torch.backends.cudnn.deterministic = True
-# torch.backends.cudnn.benchmark = False
+from baselines.panache import compute_hit_counts
+from baselines.maay import MAAY
+from baselines.dinx import compute_click_counts
+from baselines.grank import precompute_grank_score_fn
+
+torch.manual_seed(42)
+torch.cuda.manual_seed(42)
+if hasattr(torch, 'mps'): 
+    torch.mps.manual_seed(42)
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
 
 dev = get_torch_device()
+
+N_FEATURES = len(QueryDocumentRelationVector().features)
 
 def print_model_size(model):
     total_params = sum(p.numel() for p in model.parameters())
     model_size_kb = total_params * 4 / 1024  # Assuming 4 bytes per parameter
     print(f"Model size: {model_size_kb:.2f} KB ({total_params:,} parameters)")
 
-def train_ltr_model(config):
-    train_ds, val_ds = load_libsvm_dataset(
-        input_path=config.data.path,
-        slate_length=config.data.slate_length,
-        validation_ds_role=config.data.validation_ds_role,
-    )
-    train_dl, val_dl = create_data_loaders(
-        train_ds, val_ds, num_workers=config.data.num_workers, batch_size=config.data.batch_size)
-
-    model = make_model(n_features=train_ds.shape[-1], **asdict(config.model, recurse=False))
+def create_trained_model(config, training=True):
+    """
+    Creates and optionally trains a Learning to Rank model based on the provided configuration.
+    
+    Args:
+        config (Config): Configuration object containing model architecture and training parameters
+        training (bool): If True, loads training data and trains the model. If False, just creates model.
+        
+    Returns:
+        model: The created (and optionally trained) model
+    """
+    model = make_model(n_features=N_FEATURES, **asdict(config.model, recurse=False))
+    print_model_size(model)
     model.to(dev)
 
     optimizer = getattr(optim, config.optimizer.name)(params=model.parameters(), **config.optimizer.args)
@@ -60,20 +71,29 @@ def train_ltr_model(config):
         scheduler = getattr(optim.lr_scheduler, config.lr_scheduler.name)(optimizer, **config.lr_scheduler.args)
     else:
         scheduler = None
-    
-    with torch.autograd.detect_anomaly() if config.detect_anomaly else dummy_context_mgr():  # type: ignore
-        fit(
-            model=model,
-            loss_func=loss_func,
-            optimizer=optimizer,
-            scheduler=scheduler,
-            train_dl=train_dl,
-            valid_dl=val_dl,
-            config=config,
-            device=dev,
-            **asdict(config.training)
-        )
 
+    if training:
+        train_ds, val_ds = load_libsvm_dataset(
+            input_path=config.data.path,
+            slate_length=config.data.slate_length,
+            validation_ds_role=config.data.validation_ds_role,
+        )
+        train_dl, val_dl = create_data_loaders(
+            train_ds, val_ds, num_workers=config.data.num_workers, batch_size=config.data.batch_size)
+        
+        with torch.autograd.detect_anomaly() if config.detect_anomaly else dummy_context_mgr():  # type: ignore
+            fit(
+                model=model,
+                loss_func=loss_func,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                train_dl=train_dl,
+                valid_dl=val_dl,
+                config=config,
+                device=dev,
+                **asdict(config.training)
+            )
+    
     return model
 
 @ranking_func
@@ -88,11 +108,16 @@ def ltr_rank(clicklogs: list[UserActivity], activities: list[UserActivity]):
     config = Config.from_json("./allRank_config.json")
 
     dataset_path = f'.tmp/{uuid.uuid4().hex}/'
-    qid_mappings = {(ua.query, ua.issuer) for ua in clicklogs} | {(ua.query, ua.issuer) for ua in activities}
+    qid_mappings = {qid_key(ua) for ua in clicklogs} | {qid_key(ua) for ua in activities}
     
+    corpus = build_corpus(clicklogs + activities)
+
     # create train.txt and vali.txt
     ltrdm_clicklogs = LTRDatasetMaker(clicklogs)
     ltrdm_clicklogs.qid_mappings = qid_mappings
+    ltrdm_clicklogs.doc_ids = corpus['doc_ids']
+    ltrdm_clicklogs.tfidf = corpus['tfidf']
+    ltrdm_clicklogs.bm25 = corpus['bm25']
     records = ltrdm_clicklogs.compile_records()
     train_records, vali_records, _ = split_dataset_by_qids(records, train_ratio=0.8, val_ratio=0.2)
     del records
@@ -100,29 +125,31 @@ def ltr_rank(clicklogs: list[UserActivity], activities: list[UserActivity]):
     # create test.txt
     ltrdm_activities = LTRDatasetMaker(activities)
     ltrdm_activities.qid_mappings = qid_mappings
+    ltrdm_activities.doc_ids = corpus['doc_ids']
+    ltrdm_activities.tfidf = corpus['tfidf']
+    ltrdm_activities.bm25 = corpus['bm25']
+    ltrdm_activities.hit_counts = compute_hit_counts(clicklogs)
+    ltrdm_activities.maay = MAAY(clicklogs)
+    ltrdm_activities.click_counts = compute_click_counts(clicklogs)
+    ltrdm_activities.grank = precompute_grank_score_fn(clicklogs)
     test_records = ltrdm_activities.compile_records()
     
-    write_records(dataset_path, {
-        "train": train_records,
-        "vali": vali_records,
-        "test": test_records
-    })
+    training = train_records and vali_records and test_records
+    if training:
+        write_records(dataset_path, {
+            "train": train_records,
+            "vali": vali_records,
+            "test": test_records
+        })
 
-    normalize_features(dataset_path)
-    config.data.path = os.path.join(dataset_path, "_normalized")
+        normalize_features(dataset_path)
+        config.data.path = os.path.join(dataset_path, "_normalized")
 
     try:
-        model = train_ltr_model(deepcopy(config))
+        model = create_trained_model(deepcopy(config), training=True)
 
         test_ds = load_libsvm_dataset_role("test", config.data.path, config.data.slate_length)
-        test_dl = DataLoader(test_ds, batch_size=config.data.batch_size, num_workers=config.data.num_workers, shuffle=False)
-
-        # Create a dictionary mapping (query,user) pairs to their first occurrence index
-        query_user_to_first_idx = {}
-        for idx, activity in enumerate(activities):
-            key = (activity.query, activity.issuer)
-            if key not in query_user_to_first_idx:
-                query_user_to_first_idx[key] = idx
+        test_dl = DataLoader(test_ds, batch_size=config.data.batch_size, num_workers=config.data.num_workers)
         
         activity_idx = 0
         model.eval()
@@ -139,23 +166,6 @@ def ltr_rank(clicklogs: list[UserActivity], activities: list[UserActivity]):
 
                 # Iterate over each query in the batch
                 for i in range(scores.size(0)):
-                    # if (query, user) has been processed in a previous iteration, copy the results, and move forward
-                    key = (activities[activity_idx].query, activities[activity_idx].issuer)
-                    while query_user_to_first_idx[key] < activity_idx:
-                        # Get the ranking from the previous activity with same query/user
-                        prev_results = activities[query_user_to_first_idx[key]].results
-                        curr_results = activities[activity_idx].results
-                        
-                        # Create mapping from result to position in prev_results
-                        result_to_pos = {r: i for i, r in enumerate(prev_results)}
-                        
-                        # Sort current results based on positions in prev_results
-                        activities[activity_idx].results = sorted(curr_results, 
-                            key=lambda x: result_to_pos.get(x, len(prev_results)))
-                        
-                        activity_idx += 1
-                        key = (activities[activity_idx].query, activities[activity_idx].issuer)
-
                     slate_scores = scores[i]
                     slate_indices = indices[i]
                     slate_mask = mask[i]
@@ -169,15 +179,16 @@ def ltr_rank(clicklogs: list[UserActivity], activities: list[UserActivity]):
 
                     sorted_indices = sorted_original_indices.cpu().tolist()
 
+                    prev_results = activities[activity_idx].results
                     activities[activity_idx].results = [
-                        activities[activity_idx].results[i] for i in sorted_indices
+                        prev_results[i] for i in sorted_indices
                     ]
+                    
                     activity_idx += 1
 
     except Exception as e:
         raise e
     finally:
-        # torch.cuda.empty_cache()
         shutil.rmtree(dataset_path, ignore_errors=True)
 
     return activities

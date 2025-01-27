@@ -35,6 +35,7 @@ user_activities = [ua for ua in user_activities
 
 # Filter out results whose torrent info is missing
 for ua in user_activities:
+    ua.query = ua.query.strip().lower()
     ua.results = [res for res in ua.results if res.torrent_info is not None]
 
 user_activities = list(filter(lambda ua: len(ua.results) > 1, user_activities))

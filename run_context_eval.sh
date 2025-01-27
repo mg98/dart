@@ -8,5 +8,4 @@
 module load cuda12.3/toolkit/12.3
 
 PYTHONPATH=/home/mgregori/ltr-paper-code \
-~/miniconda3/envs/decpy/bin/python ./main.py 
-
+~/miniconda3/envs/decpy/bin/python ./eval_context.py "$@"

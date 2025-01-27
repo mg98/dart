@@ -9,6 +9,7 @@ import pandas as pd
 import functools
 import time
 import re
+from rank_bm25 import BM25Okapi
 from contextlib import contextmanager
 from sklearn.metrics import ndcg_score
 from sklearn.datasets import load_svmlight_file, dump_svmlight_file
@@ -19,7 +20,10 @@ def ranking_func(_func=None, *, shuffle=True):
     def _decorate(func):
         @functools.wraps(func)
         def wrapper(arg1, arg2=None):
-            clicklogs = arg1 #deepcopy(arg1)
+            if func.__name__ == 'tribler_rank':
+                return func(arg1, arg2)
+                
+            clicklogs = arg1
             activities = deepcopy(arg2) if arg2 is not None else deepcopy(arg1)
 
             if shuffle:
@@ -76,6 +80,7 @@ class UserActivityTorrent:
     infohash: str
     seeders: int
     leechers: int
+    pos: int
     torrent_info: TorrentInfo
 
     def __init__(self, data):
@@ -85,7 +90,7 @@ class UserActivityTorrent:
         self.torrent_info = None
 
     def __str__(self):
-        return f"Infohash: {self.infohash}, Seeders: {self.seeders}, Leechers: {self.leechers}, Torrent Info: {self.torrent_info}"
+        return f"Infohash: {self.infohash}, Pos: {self.pos}, Seeders: {self.seeders}, Leechers: {self.leechers}, Torrent Info: {self.torrent_info}"
     
     def __getstate__(self):
         state = self.__dict__.copy()
@@ -103,6 +108,7 @@ class UserActivityTorrent:
             self.infohash = state.infohash
             self.seeders = state.seeders
             self.leechers = state.leechers
+            self.pos = state.pos
             self.torrent_info = state.torrent_info
         else:
             self.__dict__.update(state)
@@ -121,8 +127,9 @@ class UserActivity:
         self.query = data['query']
         self.timestamp = int(data['timestamp'] / 1000)
         self.results = []
-        for result in data['results']:
+        for pos, result in enumerate(data['results']):
             torrent = UserActivityTorrent(result)
+            torrent.pos = pos
             self.results.append(torrent)
         self.chosen_result = self.results[data['chosen_index']]
 
@@ -279,19 +286,25 @@ class QueryDocumentRelationVector:
     matching_score: float = 0.0
     click_count: float = 0.0
     grank_score: float = 0.0
+    pos: int = 0
+    tag_count: int = 0
+    size: int = 0
 
     @property
     def features(self):
         # There is a bug where when the last feature value is 0, sklearn trims it from the dataset,
         # which yields inconsistent shapes and crashes the training. As a dirty fix, I put the age
         # feature at last position.
-        return [self.seeders, self.leechers, self.bm25, self.query_hit_count,
+        return [self.seeders, self.leechers, self.bm25,
                  self.tf_min, self.tf_max, self.tf_mean, self.tf_sum,
                  self.idf_min, self.idf_max, self.idf_mean, self.idf_sum,
                  self.tf_idf_min, self.tf_idf_max, self.tf_idf_mean, self.tf_idf_sum,
                  self.tf_variance, self.idf_variance, self.tf_idf_variance, 
                  self.sp, self.rel, self.pop, self.matching_score, 
-                 self.click_count, self.grank_score,
+                 self.click_count, self.grank_score, self.query_hit_count,
+                #  self.pos, 
+                 self.tag_count, 
+                #  self.size,
                  self.age]
 
     def __str__(self):
@@ -467,3 +480,13 @@ def timing():
         minutes = int((elapsed % 3600) // 60)
         seconds = int(elapsed % 60)
         print(f"Time taken: {hours}h{minutes}m{seconds}s")
+
+
+def build_corpus(activities: list[UserActivity]):
+    unique_documents = {doc.infohash: doc for ua in activities for doc in ua.results}.values()
+    corpus = {doc.infohash: doc.torrent_info.title.lower() for doc in unique_documents}
+    return {
+        'doc_ids': list(corpus.keys()),
+        'tfidf': TFIDF(corpus),
+        'bm25': BM25Okapi([tokenize(doc) for doc in corpus.values()])
+    }

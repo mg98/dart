@@ -5,6 +5,7 @@ __pycache__/
 crawl/
 tribler_data/
 results/
+!results/.gitkeep
 **/*.DS_Store
 *.pkl
 *.db

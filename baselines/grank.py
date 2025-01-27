@@ -21,11 +21,6 @@ def grank(clicklogs: list[UserActivity], activities: list[UserActivity] = None):
     def get_top_k_terms(user, k=5):
         return set(term for term, _ in term_counts[user].most_common(k))
 
-    # @cache
-    # def get_top_k_terms(user, k=5):
-    #     all_terms = [term for ua in user_activities if ua.issuer == user for term in ua.query.lower().split()]
-    #     return set(term for term, _ in Counter(all_terms).most_common(k))
-
     @cache
     def similarity_score(user_a: str, user_b: str):
         """
@@ -75,10 +70,8 @@ def grank(clicklogs: list[UserActivity], activities: list[UserActivity] = None):
     
     return activities
 
-
-@ranking_func
-def grank_fast(clicklogs: list[UserActivity], activities: list[UserActivity] = None):
-    users = set(ua.issuer for ua in clicklogs + activities)
+def precompute_grank_score_fn(clicklogs: list[UserActivity]) -> callable:
+    users = set(ua.issuer for ua in clicklogs)
     
     # Preprocess user data
     term_counts = defaultdict(Counter)
@@ -110,13 +103,17 @@ def grank_fast(clicklogs: list[UserActivity], activities: list[UserActivity] = N
 
     with ThreadPoolExecutor() as executor:
         user_similarities = dict(executor.map(compute_similarity, users))
-    
-    # Rank results
-    def rank_results(issuer, infohash, F=0):
-        sims = user_similarities[issuer]
+
+    def grank_score(issuer, infohash, F=0):
+        sims = user_similarities.get(issuer, {})
         return sum(click_counts[infohash] * (sim + F) for sim in sims.values() if sim != 0)
     
+    return grank_score
+
+@ranking_func
+def grank_fast(clicklogs: list[UserActivity], activities: list[UserActivity] = None):
+    grank_score = precompute_grank_score_fn(clicklogs)
     for ua in activities:
-        ua.results.sort(key=lambda x: rank_results(ua.issuer, x.infohash), reverse=True)
+        ua.results.sort(key=lambda x: grank_score(ua.issuer, x.infohash), reverse=True)
     
     return activities

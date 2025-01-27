@@ -4,10 +4,14 @@ import pandas as pd
 from baselines.panache import compute_hit_counts
 from baselines.maay import MAAY
 from baselines.dinx import compute_click_counts
+from baselines.grank import precompute_grank_score_fn
 from joblib import Parallel, delayed
 from common import *
 
 EXPORT_PATH = "./ltr_dataset"
+
+def qid_key(ua: UserActivity):
+    return (ua.query, ua.issuer, ua.timestamp)
 
 def write_records(export_path: str, roles: dict[str, list[ClickThroughRecord]]):
     os.makedirs(export_path, exist_ok=True)
@@ -16,26 +20,18 @@ def write_records(export_path: str, roles: dict[str, list[ClickThroughRecord]]):
             f.writelines(str(record) + "\n" for record in records)
 
 class LTRDatasetMaker:
-    def __init__(self, activities: list[UserActivity]):
-
+    def __init__(self, 
+                 activities: list[UserActivity], 
+                 hit_counts=None,
+                 maay=None,
+                 click_counts=None,
+                 grank=None):
         self.activities = activities
-        self.qid_mappings = {(ua.query, ua.issuer) for ua in self.activities}
-        self._build_corpus()
-        self.hit_counts = compute_hit_counts(self.activities)
-        self.maay = MAAY(self.activities)
-        self.click_counts = compute_click_counts(self.activities)
-
-        # Create DataFrame with user activity data
-        self.df = pd.DataFrame([
-            {
-                'user': ua.issuer,
-                'timestamp': ua.timestamp,
-                'query': ua.query,
-                'results': ua.results,
-                'chosen_result': ua.chosen_result.infohash
-            }
-            for ua in self.activities
-        ])
+        self.qid_mappings = {qid_key(ua) for ua in self.activities}
+        self.hit_counts = hit_counts
+        self.maay = maay
+        self.click_counts = click_counts
+        self.grank = grank
     
     @property
     def qid_mappings(self):
@@ -63,59 +59,56 @@ class LTRDatasetMaker:
 
     def write_queries(self, export_path: str):
         with open(f"{export_path}/queries.tsv", "w") as f:
-            for qid, (query, user) in enumerate(self.qid_mappings):
-                f.write(f"qid:{qid}\t{query}\t{user}\n")
-
-    def _build_corpus(self):
-        unique_documents = {doc.infohash: doc for ua in self.activities for doc in ua.results}.values()
-        corpus = {doc.infohash: doc.torrent_info.title.lower() for doc in unique_documents}
-        self.doc_ids = list(corpus.keys())
-        self.tfidf = TFIDF(corpus)
-        self.bm25 = BM25Okapi([tokenize(doc) for doc in corpus.values()])
+            for qid, (query, user, timestamp) in enumerate(self.qid_mappings):
+                f.write(f"qid:{qid}\t{query}\t{user}\t{timestamp}\n")
 
     def compile_records(self) -> list[ClickThroughRecord]:
-        # Group by qid and aggregate, keeping only results and chosen_result counts
-        aggregated_df = self.df.groupby(['query', 'user'], sort=False).agg({
-            'results': 'first',
-            'timestamp': 'first',
-            'chosen_result': lambda x: dict(pd.Series(x).value_counts())
-        }).reset_index()
 
-        def process_row(row, shared_resources):
-            # Unpack shared resources
-            bm25, tfidf, hit_counts, maay, click_counts, doc_ids, qid_mappings = shared_resources
-            
-            qid = qid_mappings.index((row['query'], row['user']))
-            query_terms = tokenize(row['query'])
-            doc_indices = [doc_ids.index(result.infohash) for result in row['results']]
-            
-            bm25_scores = bm25.get_batch_scores(query_terms, doc_indices)
+        def process_row(ua: UserActivity):
+            qid = self.qid_mappings.index((ua.query, ua.issuer, ua.timestamp))
+            query_terms = tokenize(ua.query)
+            doc_indices = [self.doc_ids.index(result.infohash) for result in ua.results]
+            bm25_scores = self.bm25.get_batch_scores(query_terms, doc_indices)
             
             row_records = []
-            for i, result in enumerate(row['results']):
+            for i, result in enumerate(ua.results):
                 record = ClickThroughRecord()
                 record.qid = qid
-                if isinstance(row['chosen_result'], str):
-                    record.rel = 1.0 if result.infohash == row['chosen_result'] else 0.0
-                else:
-                    record.rel = row['chosen_result'].get(result.infohash, 0) / max(row['chosen_result'].values())
+                record.rel = int(result.infohash == ua.chosen_result.infohash)
 
                 v = QueryDocumentRelationVector()
                 v.seeders = result.seeders
                 v.leechers = result.leechers
-                v.age = row['timestamp'] - result.torrent_info.timestamp
+                v.age = ua.timestamp - result.torrent_info.timestamp
                 v.bm25 = bm25_scores[i]
-                v.query_hit_count = sum(hit_counts[term][result.infohash] for term in query_terms)
-                
-                v.sp = maay.SP(result.infohash, row['query'])
-                v.rel = maay.REL(result.infohash, row['query'])
-                v.pop = maay.POP(result.infohash, row['query'])
-                v.matching_score = maay.matching_score(row['user'], result.infohash)
 
-                v.click_count = click_counts[result.infohash]
+
+                other_activities = [
+                    act for act in self.activities 
+                    if not (
+                        act.query == ua.query and 
+                        act.issuer == ua.issuer and 
+                        act.timestamp == ua.timestamp
+                    )
+                ]
+                hit_counts = self.hit_counts or compute_hit_counts(other_activities)
+                maay = self.maay or MAAY(other_activities)
+                click_counts = self.click_counts or compute_click_counts(other_activities)
+                grank = self.grank or precompute_grank_score_fn(other_activities)
+                v.query_hit_count = sum(hit_counts.get(term, {}).get(result.infohash, 0) for term in query_terms)
+                v.sp = maay.SP(result.infohash, ua.query)
+                v.rel = maay.REL(result.infohash, ua.query)
+                v.pop = maay.POP(result.infohash, ua.query)
+                v.matching_score = maay.matching_score(ua.issuer, result.infohash)
+                v.click_count = click_counts.get(result.infohash, 0)
+                v.grank_score = grank(result.infohash, ua.issuer)
+
+                v.pos = result.pos
+                v.tag_count = len(result.torrent_info.tags)
+                v.size =result.torrent_info.size
 
                 # aggregate tf idf features over all query terms
-                tfidf_results = [tfidf.get_tf_idf(result.infohash, term) for term in query_terms]
+                tfidf_results = [self.tfidf.get_tf_idf(result.infohash, term) for term in query_terms]
 
                 v.tf_min = min(r["tf"] for r in tfidf_results)
                 v.tf_max = max(r["tf"] for r in tfidf_results)
@@ -141,20 +134,9 @@ class LTRDatasetMaker:
 
             return row_records
         
-        # Package shared resources once
-        shared_resources = (
-            self.bm25,
-            self.tfidf,
-            self.hit_counts,
-            self.maay,
-            self.click_counts,
-            self.doc_ids,
-            self.qid_mappings
-        )
-        
         parallel_records = Parallel(n_jobs=8, batch_size=8)(
-            delayed(process_row)(row, shared_resources)
-            for _, row in aggregated_df.iterrows()
+            delayed(process_row)(ua)
+            for ua in self.activities
         )
 
         records = [record for batch in parallel_records for record in batch]
