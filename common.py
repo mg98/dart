@@ -257,9 +257,23 @@ class TFIDF:
         tf = tf_idf / idf if idf != 0 else 0
         
         return { "tf": tf, "tf_idf": tf_idf, "idf": idf }
-    
+
+    def get_cos_sim(self, doc_id: str, query: list[str]) -> float:
+        """Compute cosine similarity between the query and a document."""
+        query = ' '.join(query)
+        query_vector = self.vectorizer.transform([query]).toarray()[0]
+        doc_idx = self.doc_ids.index(doc_id)
+        document_vector = self.tfidf_matrix[doc_idx].toarray()[0]
+        dot_product = np.dot(query_vector, document_vector)
+        query_magnitude = np.linalg.norm(query_vector)
+        document_magnitude = np.linalg.norm(document_vector)
+        if query_magnitude == 0 or document_magnitude == 0:
+            return 0.0
+        return dot_product / (query_magnitude * document_magnitude)
+
 @dataclass
-class QueryDocumentRelationVector:
+class TermBasedMetrics:
+    bm25: float = 0.0
     tf_min: float = 0.0
     tf_max: float = 0.0
     tf_mean: float = 0.0
@@ -275,7 +289,70 @@ class QueryDocumentRelationVector:
     tf_idf_mean: float = 0.0
     tf_idf_sum: float = 0.0
     tf_idf_variance: float = 0.0
-    bm25: float = 0.0
+    cos_sim: float = 0.0
+    covered_query_term_number: int = 0
+    covered_query_term_ratio: float = 0.0
+    char_len: int = 0
+    term_len: int = 0
+    total_query_terms: int = 0
+    exact_match: int = 0
+    match_ratio: float = 0.0
+
+class Corpus:
+    def __init__(self, corpus: Dict[str, str]):
+        self.corpus = corpus
+        self.tfidf = TFIDF(corpus)
+        self.bm25 = BM25Okapi([tokenize(t) for t in corpus.values()])
+
+    def compute_features(self, doc_id: str, query_terms: list[str]) -> TermBasedMetrics:
+        v = TermBasedMetrics()
+
+        doc_index = list(self.corpus.keys()).index(doc_id)
+        v.bm25 = self.bm25.get_batch_scores(query_terms, [doc_index])[0]
+
+        tfidf_results = [self.tfidf.get_tf_idf(doc_id, term) for term in query_terms]
+
+        v.tf_min = min(r["tf"] for r in tfidf_results) if tfidf_results else 0.0
+        v.tf_max = max(r["tf"] for r in tfidf_results) if tfidf_results else 0.0
+        v.tf_sum = sum(r["tf"] for r in tfidf_results)
+        v.tf_mean = v.tf_sum / len(tfidf_results) if tfidf_results else 0.0
+
+        v.idf_min = min(r["idf"] for r in tfidf_results) if tfidf_results else 0.0
+        v.idf_max = max(r["idf"] for r in tfidf_results) if tfidf_results else 0.0
+        v.idf_sum = sum(r["idf"] for r in tfidf_results)
+        v.idf_mean = v.idf_sum / len(tfidf_results) if tfidf_results else 0.0
+
+        v.tf_idf_min = min(r["tf_idf"] for r in tfidf_results) if tfidf_results else 0.0
+        v.tf_idf_max = max(r["tf_idf"] for r in tfidf_results) if tfidf_results else 0.0
+        v.tf_idf_sum = sum(r["tf_idf"] for r in tfidf_results)
+        v.tf_idf_mean = v.tf_idf_sum / len(tfidf_results) if tfidf_results else 0.0
+        
+        v.tf_variance = sum((r["tf"] - v.tf_mean) ** 2 for r in tfidf_results) / len(tfidf_results) if tfidf_results else 0.0
+        v.idf_variance = sum((r["idf"] - v.idf_mean) ** 2 for r in tfidf_results) / len(tfidf_results) if tfidf_results else 0.0 
+        v.tf_idf_variance = sum((r["tf_idf"] - v.tf_idf_mean) ** 2 for r in tfidf_results) / len(tfidf_results) if tfidf_results else 0.0
+
+        v.cos_sim = self.tfidf.get_cos_sim(doc_id, query_terms)
+
+        v.covered_query_term_number = sum(1 for r in tfidf_results if r["tf"] > 0)
+        v.covered_query_term_ratio = v.covered_query_term_number / len(query_terms)
+
+        # Get document text from tfidf to calculate lengths
+        doc_text = self.corpus[doc_id]
+        v.char_len = len(doc_text)
+        v.term_len = len(tokenize(doc_text))
+        
+        # Boolean features
+        document_terms = tokenize(doc_text)
+        matched_terms = set(query_terms) & set(document_terms)
+        match_count = len(matched_terms)
+        v.total_query_terms = len(query_terms)
+        v.exact_match = 1 if match_count == v.total_query_terms else 0
+        v.match_ratio = match_count / v.total_query_terms if v.total_query_terms > 0 else 0
+
+        return v
+
+class QueryDocumentRelationVector:
+    title: TermBasedMetrics = TermBasedMetrics()
     seeders: int = 0
     leechers: int = 0
     age: float = 0.0
@@ -295,17 +372,38 @@ class QueryDocumentRelationVector:
         # There is a bug where when the last feature value is 0, sklearn trims it from the dataset,
         # which yields inconsistent shapes and crashes the training. As a dirty fix, I put the age
         # feature at last position.
-        return [self.seeders, self.leechers, self.bm25,
-                 self.tf_min, self.tf_max, self.tf_mean, self.tf_sum,
-                 self.idf_min, self.idf_max, self.idf_mean, self.idf_sum,
-                 self.tf_idf_min, self.tf_idf_max, self.tf_idf_mean, self.tf_idf_sum,
-                 self.tf_variance, self.idf_variance, self.tf_idf_variance, 
-                 self.sp, self.rel, self.pop, self.matching_score, 
-                 self.click_count, self.grank_score, self.query_hit_count,
-                #  self.pos, 
-                 self.tag_count, 
+        return [
+                self.title.bm25,
+                self.title.tf_min,
+                self.title.tf_max,
+                self.title.tf_mean,
+                self.title.tf_sum,
+                self.title.tf_variance,
+                self.title.idf_min,
+                self.title.idf_max,
+                self.title.idf_mean,
+                self.title.idf_sum,
+                self.title.idf_variance,
+                self.title.tf_idf_min,
+                self.title.tf_idf_max,
+                self.title.tf_idf_mean,
+                self.title.tf_idf_sum,
+                self.title.tf_idf_variance,
+                self.title.cos_sim,
+                self.title.covered_query_term_number,
+                self.title.covered_query_term_ratio,
+                self.title.char_len,
+                self.title.term_len,
+                self.title.total_query_terms,
+                self.title.exact_match,
+                self.title.match_ratio,
+                self.seeders, self.leechers,
+                self.click_count, self.query_hit_count,
+                # self.sp, self.rel, self.pop, self.matching_score, self.grank_score,
+                self.pos, 
+                self.tag_count, 
                 #  self.size,
-                 self.age]
+                self.age]
 
     def __str__(self):
         return ' '.join(f'{i}:{val}' for i, val in enumerate(self.features))
@@ -344,7 +442,6 @@ def split_dataset_by_qids(records, train_ratio=0.8, val_ratio=0.1):
     """
     records_df = pd.DataFrame([record.to_dict() for record in records])
     qids = records_df['qid'].unique()
-    # np.random.shuffle(qids) # For some reason, shuffling the qids leads to worse results
     
     # Calculate split sizes
     n_qids = len(qids)
@@ -480,13 +577,3 @@ def timing():
         minutes = int((elapsed % 3600) // 60)
         seconds = int(elapsed % 60)
         print(f"Time taken: {hours}h{minutes}m{seconds}s")
-
-
-def build_corpus(activities: list[UserActivity]):
-    unique_documents = {doc.infohash: doc for ua in activities for doc in ua.results}.values()
-    corpus = {doc.infohash: doc.torrent_info.title.lower() for doc in unique_documents}
-    return {
-        'doc_ids': list(corpus.keys()),
-        'tfidf': TFIDF(corpus),
-        'bm25': BM25Okapi([tokenize(doc) for doc in corpus.values()])
-    }

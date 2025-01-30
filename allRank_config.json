@@ -1,16 +1,19 @@
 {
     "model": {
       "fc_model": {
-        "sizes": [16],
+        "sizes": [24],
         "input_norm": false,
         "activation": null,
         "dropout": 0.0
       },
       "transformer": {
         "N": 1,
-        "d_ff": 16,
-        "h": 1,
-        "positional_encoding" : null,
+        "d_ff": 96,
+        "h": 2,
+        "positional_encoding" : {
+          "strategy": "fixed",
+          "max_indices": 600
+        },
         "dropout": 0.1
       },
       "post_model": {

@@ -10,7 +10,7 @@ from baselines.grank import grank_fast as grank
 from baselines.random import random_rank
 from baselines.tribler import tribler_rank
 from baselines.ltr import ltr_rank
-from common import mean_ndcg, timing, calc_ndcg
+from common import mean_ndcg, timing
 print("Done importing modules")
 
 np.random.seed(123)
@@ -62,7 +62,6 @@ if __name__ == "__main__":
             results[k][algo_name] = np.mean(ndcgs)
             print(f"nDCG@{k}: {np.mean(ndcgs)}")
         
-        print(len(reranked_activities))
         with open(os.path.join(activities_dump_dir, f'{algo_name}.pkl'), 'wb') as f:
             pickle.dump(reranked_activities, f)
 

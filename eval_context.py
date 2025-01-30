@@ -26,7 +26,7 @@ def gen_fast_range(end):
     i = 1
     while i <= end:
         total_range.append(i)
-        i = int(i * 1.01) + 1
+        i = int(i * 1.1) + 1
     return total_range
 
 def chronological_eval(user_activities: list[UserActivity], rank_func) -> dict[int, dict[int, float]]:

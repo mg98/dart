@@ -1,0 +1,226 @@
+[2025-01-29 11:26:39,443][EL_Local][DEBUG] Rank: 29
+[2025-01-29 11:26:39,443][EL_Local][DEBUG] type(graph): <class 'int'>
+[2025-01-29 11:26:39,443][EL_Local][DEBUG] type(mapping): <class 'decentralizepy.mappings.Linear.Linear'>
+[2025-01-29 11:26:43,191][cmd][DEBUG] Popen(['git', 'version'], cwd=/Users/marcel/Projects/ltr-paper-code/p2p_el, stdin=None, shell=False, universal_newlines=False)
+[2025-01-29 11:26:43,273][cmd][DEBUG] Popen(['git', 'version'], cwd=/Users/marcel/Projects/ltr-paper-code/p2p_el, stdin=None, shell=False, universal_newlines=False)
+[2025-01-29 11:26:43,506][auth][DEBUG] Trying paths: ['/Users/marcel/.docker/config.json', '/Users/marcel/.dockercfg']
+[2025-01-29 11:26:43,506][auth][DEBUG] Found file at path: /Users/marcel/.docker/config.json
+[2025-01-29 11:26:43,507][auth][DEBUG] Found 'auths' section
+[2025-01-29 11:26:43,507][auth][DEBUG] Auth data for ghcr.io is absent. Client might be using a credentials store instead.
+[2025-01-29 11:26:43,507][auth][DEBUG] Found 'credsStore' section
+[2025-01-29 11:26:44,137][Tribler][INFO] User folder: 3841afaacf566180784d66af27e0103ae280c3a3
+[2025-01-29 11:26:44,140][Node][INFO] Dataset instantiation complete.
+[2025-01-29 11:26:44,151][Tribler][INFO] Model training will execute on mps
+[2025-01-29 11:26:44,331][Sharing][DEBUG] Using the <class 'decentralizepy.compression.EliasQuantization.EliasQuantization'> to compress the data
+[2025-01-29 11:26:44,331][Node][DEBUG] Sending connection request to 0
+[2025-01-29 11:26:44,331][TCP][DEBUG] Connecting to my neighbour: 0
+[2025-01-29 11:26:44,332][TCP][DEBUG] 29 sent the message to 0.
+[2025-01-29 11:26:44,332][TCP][DEBUG] Sent message size: 46
+[2025-01-29 11:26:44,332][Node][DEBUG] Sending connection request to 1
+[2025-01-29 11:26:44,332][TCP][DEBUG] Connecting to my neighbour: 1
+[2025-01-29 11:26:44,332][TCP][DEBUG] 29 sent the message to 1.
+[2025-01-29 11:26:44,332][TCP][DEBUG] Sent message size: 46
+[2025-01-29 11:26:44,332][Node][DEBUG] Sending connection request to 2
+[2025-01-29 11:26:44,332][TCP][DEBUG] Connecting to my neighbour: 2
+[2025-01-29 11:26:44,333][TCP][DEBUG] 29 sent the message to 2.
+[2025-01-29 11:26:44,333][TCP][DEBUG] Sent message size: 46
+[2025-01-29 11:26:44,333][Node][DEBUG] Sending connection request to 3
+[2025-01-29 11:26:44,333][TCP][DEBUG] Connecting to my neighbour: 3
+[2025-01-29 11:26:44,333][TCP][DEBUG] 29 sent the message to 3.
+[2025-01-29 11:26:44,333][TCP][DEBUG] Sent message size: 46
+[2025-01-29 11:26:44,333][Node][DEBUG] Sending connection request to 4
+[2025-01-29 11:26:44,333][TCP][DEBUG] Connecting to my neighbour: 4
+[2025-01-29 11:26:44,333][TCP][DEBUG] 29 sent the message to 4.
+[2025-01-29 11:26:44,333][TCP][DEBUG] Sent message size: 46
+[2025-01-29 11:26:44,333][Node][DEBUG] Sending connection request to 5
+[2025-01-29 11:26:44,333][TCP][DEBUG] Connecting to my neighbour: 5
+[2025-01-29 11:26:44,334][TCP][DEBUG] 29 sent the message to 5.
+[2025-01-29 11:26:44,334][TCP][DEBUG] Sent message size: 46
+[2025-01-29 11:26:44,334][Node][DEBUG] Sending connection request to 6
+[2025-01-29 11:26:44,334][TCP][DEBUG] Connecting to my neighbour: 6
+[2025-01-29 11:26:44,334][TCP][DEBUG] 29 sent the message to 6.
+[2025-01-29 11:26:44,334][TCP][DEBUG] Sent message size: 46
+[2025-01-29 11:26:44,334][Node][DEBUG] Sending connection request to 7
+[2025-01-29 11:26:44,334][TCP][DEBUG] Connecting to my neighbour: 7
+[2025-01-29 11:26:44,334][TCP][DEBUG] 29 sent the message to 7.
+[2025-01-29 11:26:44,334][TCP][DEBUG] Sent message size: 46
+[2025-01-29 11:26:44,334][Node][DEBUG] Sending connection request to 8
+[2025-01-29 11:26:44,334][TCP][DEBUG] Connecting to my neighbour: 8
+[2025-01-29 11:26:44,334][TCP][DEBUG] 29 sent the message to 8.
+[2025-01-29 11:26:44,335][TCP][DEBUG] Sent message size: 46
+[2025-01-29 11:26:44,335][Node][DEBUG] Sending connection request to 9
+[2025-01-29 11:26:44,335][TCP][DEBUG] Connecting to my neighbour: 9
+[2025-01-29 11:26:44,335][TCP][DEBUG] 29 sent the message to 9.
+[2025-01-29 11:26:44,335][TCP][DEBUG] Sent message size: 46
+[2025-01-29 11:26:44,335][Node][DEBUG] Sending connection request to 10
+[2025-01-29 11:26:44,335][TCP][DEBUG] Connecting to my neighbour: 10
+[2025-01-29 11:26:44,335][TCP][DEBUG] 29 sent the message to 10.
+[2025-01-29 11:26:44,335][TCP][DEBUG] Sent message size: 46
+[2025-01-29 11:26:44,335][Node][DEBUG] Sending connection request to 11
+[2025-01-29 11:26:44,335][TCP][DEBUG] Connecting to my neighbour: 11
+[2025-01-29 11:26:44,336][TCP][DEBUG] 29 sent the message to 11.
+[2025-01-29 11:26:44,336][TCP][DEBUG] Sent message size: 46
+[2025-01-29 11:26:44,336][Node][DEBUG] Sending connection request to 12
+[2025-01-29 11:26:44,336][TCP][DEBUG] Connecting to my neighbour: 12
+[2025-01-29 11:26:44,336][TCP][DEBUG] 29 sent the message to 12.
+[2025-01-29 11:26:44,336][TCP][DEBUG] Sent message size: 46
+[2025-01-29 11:26:44,336][Node][DEBUG] Sending connection request to 13
+[2025-01-29 11:26:44,336][TCP][DEBUG] Connecting to my neighbour: 13
+[2025-01-29 11:26:44,336][TCP][DEBUG] 29 sent the message to 13.
+[2025-01-29 11:26:44,336][TCP][DEBUG] Sent message size: 46
+[2025-01-29 11:26:44,336][Node][DEBUG] Sending connection request to 14
+[2025-01-29 11:26:44,337][TCP][DEBUG] Connecting to my neighbour: 14
+[2025-01-29 11:26:44,337][TCP][DEBUG] 29 sent the message to 14.
+[2025-01-29 11:26:44,337][TCP][DEBUG] Sent message size: 46
+[2025-01-29 11:26:44,337][Node][DEBUG] Sending connection request to 15
+[2025-01-29 11:26:44,337][TCP][DEBUG] Connecting to my neighbour: 15
+[2025-01-29 11:26:44,337][TCP][DEBUG] 29 sent the message to 15.
+[2025-01-29 11:26:44,337][TCP][DEBUG] Sent message size: 46
+[2025-01-29 11:26:44,337][Node][DEBUG] Sending connection request to 16
+[2025-01-29 11:26:44,337][TCP][DEBUG] Connecting to my neighbour: 16
+[2025-01-29 11:26:44,338][TCP][DEBUG] 29 sent the message to 16.
+[2025-01-29 11:26:44,338][TCP][DEBUG] Sent message size: 46
+[2025-01-29 11:26:44,338][Node][DEBUG] Sending connection request to 17
+[2025-01-29 11:26:44,338][TCP][DEBUG] Connecting to my neighbour: 17
+[2025-01-29 11:26:44,338][TCP][DEBUG] 29 sent the message to 17.
+[2025-01-29 11:26:44,338][TCP][DEBUG] Sent message size: 46
+[2025-01-29 11:26:44,338][Node][DEBUG] Sending connection request to 18
+[2025-01-29 11:26:44,338][TCP][DEBUG] Connecting to my neighbour: 18
+[2025-01-29 11:26:44,338][TCP][DEBUG] 29 sent the message to 18.
+[2025-01-29 11:26:44,338][TCP][DEBUG] Sent message size: 46
+[2025-01-29 11:26:44,338][Node][DEBUG] Sending connection request to 19
+[2025-01-29 11:26:44,338][TCP][DEBUG] Connecting to my neighbour: 19
+[2025-01-29 11:26:44,339][TCP][DEBUG] 29 sent the message to 19.
+[2025-01-29 11:26:44,339][TCP][DEBUG] Sent message size: 46
+[2025-01-29 11:26:44,339][Node][DEBUG] Sending connection request to 20
+[2025-01-29 11:26:44,339][TCP][DEBUG] Connecting to my neighbour: 20
+[2025-01-29 11:26:44,339][TCP][DEBUG] 29 sent the message to 20.
+[2025-01-29 11:26:44,339][TCP][DEBUG] Sent message size: 46
+[2025-01-29 11:26:44,339][Node][DEBUG] Sending connection request to 21
+[2025-01-29 11:26:44,339][TCP][DEBUG] Connecting to my neighbour: 21
+[2025-01-29 11:26:44,340][TCP][DEBUG] 29 sent the message to 21.
+[2025-01-29 11:26:44,340][TCP][DEBUG] Sent message size: 46
+[2025-01-29 11:26:44,340][Node][DEBUG] Sending connection request to 22
+[2025-01-29 11:26:44,340][TCP][DEBUG] Connecting to my neighbour: 22
+[2025-01-29 11:26:44,340][TCP][DEBUG] 29 sent the message to 22.
+[2025-01-29 11:26:44,340][TCP][DEBUG] Sent message size: 46
+[2025-01-29 11:26:44,340][Node][DEBUG] Sending connection request to 23
+[2025-01-29 11:26:44,340][TCP][DEBUG] Connecting to my neighbour: 23
+[2025-01-29 11:26:44,341][TCP][DEBUG] 29 sent the message to 23.
+[2025-01-29 11:26:44,341][TCP][DEBUG] Sent message size: 46
+[2025-01-29 11:26:44,341][Node][DEBUG] Sending connection request to 24
+[2025-01-29 11:26:44,341][TCP][DEBUG] Connecting to my neighbour: 24
+[2025-01-29 11:26:44,341][TCP][DEBUG] 29 sent the message to 24.
+[2025-01-29 11:26:44,341][TCP][DEBUG] Sent message size: 46
+[2025-01-29 11:26:44,341][Node][DEBUG] Sending connection request to 25
+[2025-01-29 11:26:44,341][TCP][DEBUG] Connecting to my neighbour: 25
+[2025-01-29 11:26:44,342][TCP][DEBUG] 29 sent the message to 25.
+[2025-01-29 11:26:44,342][TCP][DEBUG] Sent message size: 46
+[2025-01-29 11:26:44,342][Node][DEBUG] Sending connection request to 26
+[2025-01-29 11:26:44,342][TCP][DEBUG] Connecting to my neighbour: 26
+[2025-01-29 11:26:44,342][TCP][DEBUG] 29 sent the message to 26.
+[2025-01-29 11:26:44,342][TCP][DEBUG] Sent message size: 46
+[2025-01-29 11:26:44,342][Node][DEBUG] Sending connection request to 27
+[2025-01-29 11:26:44,343][TCP][DEBUG] Connecting to my neighbour: 27
+[2025-01-29 11:26:44,343][TCP][DEBUG] 29 sent the message to 27.
+[2025-01-29 11:26:44,343][TCP][DEBUG] Sent message size: 46
+[2025-01-29 11:26:44,343][Node][DEBUG] Sending connection request to 28
+[2025-01-29 11:26:44,343][TCP][DEBUG] Connecting to my neighbour: 28
+[2025-01-29 11:26:44,343][TCP][DEBUG] 29 sent the message to 28.
+[2025-01-29 11:26:44,343][TCP][DEBUG] Sent message size: 46
+[2025-01-29 11:26:44,343][Node][DEBUG] Sending connection request to 30
+[2025-01-29 11:26:44,343][TCP][DEBUG] Connecting to my neighbour: 30
+[2025-01-29 11:26:44,344][TCP][DEBUG] 29 sent the message to 30.
+[2025-01-29 11:26:44,344][TCP][DEBUG] Sent message size: 46
+[2025-01-29 11:26:44,344][Node][DEBUG] Sending connection request to 31
+[2025-01-29 11:26:44,344][TCP][DEBUG] Connecting to my neighbour: 31
+[2025-01-29 11:26:44,344][TCP][DEBUG] 29 sent the message to 31.
+[2025-01-29 11:26:44,344][TCP][DEBUG] Sent message size: 46
+[2025-01-29 11:26:44,344][Node][DEBUG] Waiting HELLO from 0
+[2025-01-29 11:26:44,344][Node][DEBUG] Received some message from 2 with CHANNEL: CONNECT
+[2025-01-29 11:26:44,344][Node][DEBUG] Received HELLO from 2
+[2025-01-29 11:26:44,344][Node][DEBUG] Waiting HELLO from 0
+[2025-01-29 11:26:44,344][Node][DEBUG] Received some message from 19 with CHANNEL: CONNECT
+[2025-01-29 11:26:44,344][Node][DEBUG] Received HELLO from 19
+[2025-01-29 11:26:44,344][Node][DEBUG] Waiting HELLO from 0
+[2025-01-29 11:26:44,344][Node][DEBUG] Received some message from 21 with CHANNEL: CONNECT
+[2025-01-29 11:26:44,344][Node][DEBUG] Received HELLO from 21
+[2025-01-29 11:26:44,344][Node][DEBUG] Waiting HELLO from 0
+[2025-01-29 11:26:44,344][Node][DEBUG] Received some message from 6 with CHANNEL: CONNECT
+[2025-01-29 11:26:44,344][Node][DEBUG] Received HELLO from 6
+[2025-01-29 11:26:44,344][Node][DEBUG] Waiting HELLO from 0
+[2025-01-29 11:26:44,344][Node][DEBUG] Received some message from 11 with CHANNEL: CONNECT
+[2025-01-29 11:26:44,344][Node][DEBUG] Received HELLO from 11
+[2025-01-29 11:26:44,344][Node][DEBUG] Waiting HELLO from 0
+[2025-01-29 11:26:44,345][Node][DEBUG] Received some message from 28 with CHANNEL: CONNECT
+[2025-01-29 11:26:44,345][Node][DEBUG] Received HELLO from 28
+[2025-01-29 11:26:44,345][Node][DEBUG] Waiting HELLO from 0
+[2025-01-29 11:26:44,345][Node][DEBUG] Received some message from 27 with CHANNEL: CONNECT
+[2025-01-29 11:26:44,345][Node][DEBUG] Received HELLO from 27
+[2025-01-29 11:26:44,345][Node][DEBUG] Waiting HELLO from 0
+[2025-01-29 11:26:44,346][Node][DEBUG] Received some message from 25 with CHANNEL: CONNECT
+[2025-01-29 11:26:44,346][Node][DEBUG] Received HELLO from 25
+[2025-01-29 11:26:44,346][Node][DEBUG] Waiting HELLO from 0
+[2025-01-29 11:26:44,354][Node][DEBUG] Received some message from 31 with CHANNEL: CONNECT
+[2025-01-29 11:26:44,354][Node][DEBUG] Received HELLO from 31
+[2025-01-29 11:26:44,354][Node][DEBUG] Waiting HELLO from 0
+[2025-01-29 11:26:44,356][Node][DEBUG] Received some message from 17 with CHANNEL: CONNECT
+[2025-01-29 11:26:44,356][Node][DEBUG] Received HELLO from 17
+[2025-01-29 11:26:44,356][Node][DEBUG] Waiting HELLO from 0
+[2025-01-29 11:26:44,363][Node][DEBUG] Received some message from 4 with CHANNEL: CONNECT
+[2025-01-29 11:26:44,363][Node][DEBUG] Received HELLO from 4
+[2025-01-29 11:26:44,363][Node][DEBUG] Waiting HELLO from 0
+[2025-01-29 11:26:44,364][Node][DEBUG] Received some message from 12 with CHANNEL: CONNECT
+[2025-01-29 11:26:44,364][Node][DEBUG] Received HELLO from 12
+[2025-01-29 11:26:44,364][Node][DEBUG] Waiting HELLO from 0
+[2025-01-29 11:26:44,370][Node][DEBUG] Received some message from 13 with CHANNEL: CONNECT
+[2025-01-29 11:26:44,370][Node][DEBUG] Received HELLO from 13
+[2025-01-29 11:26:44,370][Node][DEBUG] Waiting HELLO from 0
+[2025-01-29 11:26:44,389][Node][DEBUG] Received some message from 15 with CHANNEL: CONNECT
+[2025-01-29 11:26:44,389][Node][DEBUG] Received HELLO from 15
+[2025-01-29 11:26:44,389][Node][DEBUG] Waiting HELLO from 0
+[2025-01-29 11:26:44,389][Node][DEBUG] Received some message from 16 with CHANNEL: CONNECT
+[2025-01-29 11:26:44,389][Node][DEBUG] Received HELLO from 16
+[2025-01-29 11:26:44,389][Node][DEBUG] Waiting HELLO from 0
+[2025-01-29 11:26:44,396][Node][DEBUG] Received some message from 22 with CHANNEL: CONNECT
+[2025-01-29 11:26:44,396][Node][DEBUG] Received HELLO from 22
+[2025-01-29 11:26:44,396][Node][DEBUG] Waiting HELLO from 0
+[2025-01-29 11:26:44,400][Node][DEBUG] Received some message from 26 with CHANNEL: CONNECT
+[2025-01-29 11:26:44,400][Node][DEBUG] Received HELLO from 26
+[2025-01-29 11:26:44,400][Node][DEBUG] Waiting HELLO from 0
+[2025-01-29 11:26:44,411][Node][DEBUG] Received some message from 10 with CHANNEL: CONNECT
+[2025-01-29 11:26:44,411][Node][DEBUG] Received HELLO from 10
+[2025-01-29 11:26:44,411][Node][DEBUG] Waiting HELLO from 0
+[2025-01-29 11:26:44,421][Node][DEBUG] Received some message from 3 with CHANNEL: CONNECT
+[2025-01-29 11:26:44,421][Node][DEBUG] Received HELLO from 3
+[2025-01-29 11:26:44,421][Node][DEBUG] Waiting HELLO from 0
+[2025-01-29 11:26:44,429][Node][DEBUG] Received some message from 8 with CHANNEL: CONNECT
+[2025-01-29 11:26:44,429][Node][DEBUG] Received HELLO from 8
+[2025-01-29 11:26:44,429][Node][DEBUG] Waiting HELLO from 0
+[2025-01-29 11:26:44,437][Node][DEBUG] Received some message from 18 with CHANNEL: CONNECT
+[2025-01-29 11:26:44,437][Node][DEBUG] Received HELLO from 18
+[2025-01-29 11:26:44,437][Node][DEBUG] Waiting HELLO from 0
+[2025-01-29 11:26:44,445][Node][DEBUG] Received some message from 5 with CHANNEL: CONNECT
+[2025-01-29 11:26:44,445][Node][DEBUG] Received HELLO from 5
+[2025-01-29 11:26:44,445][Node][DEBUG] Waiting HELLO from 0
+[2025-01-29 11:26:44,454][Node][DEBUG] Received some message from 14 with CHANNEL: CONNECT
+[2025-01-29 11:26:44,454][Node][DEBUG] Received HELLO from 14
+[2025-01-29 11:26:44,454][Node][DEBUG] Waiting HELLO from 0
+[2025-01-29 11:26:44,455][Node][DEBUG] Received some message from 9 with CHANNEL: CONNECT
+[2025-01-29 11:26:44,455][Node][DEBUG] Received HELLO from 9
+[2025-01-29 11:26:44,455][Node][DEBUG] Waiting HELLO from 0
+[2025-01-29 11:26:44,464][Node][DEBUG] Received some message from 24 with CHANNEL: CONNECT
+[2025-01-29 11:26:44,464][Node][DEBUG] Received HELLO from 24
+[2025-01-29 11:26:44,464][Node][DEBUG] Waiting HELLO from 0
+[2025-01-29 11:26:44,470][Node][DEBUG] Received some message from 7 with CHANNEL: CONNECT
+[2025-01-29 11:26:44,470][Node][DEBUG] Received HELLO from 7
+[2025-01-29 11:26:44,470][Node][DEBUG] Waiting HELLO from 0
+[2025-01-29 11:26:44,481][Node][DEBUG] Received some message from 30 with CHANNEL: CONNECT
+[2025-01-29 11:26:44,481][Node][DEBUG] Received HELLO from 30
+[2025-01-29 11:26:44,481][Node][DEBUG] Waiting HELLO from 0
+[2025-01-29 11:26:44,495][Node][DEBUG] Received some message from 20 with CHANNEL: CONNECT
+[2025-01-29 11:26:44,495][Node][DEBUG] Received HELLO from 20
+[2025-01-29 11:26:44,495][Node][DEBUG] Waiting HELLO from 0
+[2025-01-29 11:26:44,506][Node][DEBUG] Received some message from 23 with CHANNEL: CONNECT
+[2025-01-29 11:26:44,506][Node][DEBUG] Received HELLO from 23
+[2025-01-29 11:26:44,506][Node][DEBUG] Waiting HELLO from 0

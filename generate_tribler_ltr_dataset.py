@@ -26,6 +26,7 @@ with open('user_activities.pkl', 'rb') as f:
 print("Generating main dataset...")
 
 ltrdm = LTRDatasetMaker(user_activities)
+ltrdm.build_corpus()
 ltrdm.generate(EXPORT_PATH)
 ltrdm.write_queries(EXPORT_PATH)
 
@@ -36,23 +37,30 @@ ltrdm.write_queries(EXPORT_PATH)
 print("Generating user-specific datasets...")
 
 # Get top users by number of queries
-user_query_counts = ltrdm.df.groupby('user')['query'].nunique()
-top_users = user_query_counts.nlargest(32).index
-original_df = ltrdm.df.copy()
+user_query_counts = defaultdict(int)
+for ua in ltrdm.activities:
+    user_query_counts[ua.issuer] += 1
+
+top_users = sorted(user_query_counts.items(), key=lambda x: x[1], reverse=True)[:32]
+top_users = [user for user, _ in top_users]
 
 # Create per-user datasets
 for user in tqdm(top_users):
-    # Get qids for this user's queries
-    individual_user_activity_df = original_df[original_df['user'] == user]
-    individual_user_activity_df = individual_user_activity_df.sort_values('timestamp')
-    ltrdm.df = individual_user_activity_df
+    # Get activities for this user
+    user_activities = [ua for ua in ltrdm.activities if ua.issuer == user]
+    user_activities.sort(key=lambda x: x.timestamp)
     
     # Create user directory
     user_dir = os.path.join(EXPORT_PATH, "by_user", str(user))
     os.makedirs(user_dir, exist_ok=True)
 
-    # Filter records for this user's queries
-    user_records = ltrdm.generate(user_dir, normalize=False)
+    # Create dataset maker for this user's activities
+    user_ltrdm = LTRDatasetMaker(user_activities)
+    user_ltrdm.corpus = ltrdm.corpus
+    user_ltrdm.qid_mappings = ltrdm.qid_mappings
+    
+    # Generate dataset
+    user_ltrdm.generate(user_dir, normalize=False)
     
 # Create temporary combined files for normalization
 temp_dir = os.path.join(EXPORT_PATH, "by_user", "temp")

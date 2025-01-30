@@ -33,6 +33,10 @@ user_activities = [ua for ua in user_activities
                    and ua.timestamp != 0 
                    and ua.timestamp < time.time()]
 
+# Find and print the longest result length across all user activities
+max_results_length = max(len(ua.results) for ua in user_activities)
+print(f"Longest result length: {max_results_length}")
+
 # Filter out results whose torrent info is missing
 for ua in user_activities:
     ua.query = ua.query.strip().lower()

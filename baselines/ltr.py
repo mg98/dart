@@ -8,14 +8,9 @@ import allrank.models.losses as losses
 from allrank.config import Config
 from allrank.data.dataset_loading import load_libsvm_dataset, load_libsvm_dataset_role, create_data_loaders
 from allrank.models.model import make_model
-from allrank.models.model_utils import get_torch_device, load_state_dict_from_file
+from allrank.models.model_utils import get_torch_device
 from allrank.training.train_utils import fit
-from allrank.utils.file_utils import create_output_dirs, PathsContainer
 from allrank.utils.python_utils import dummy_context_mgr
-from allrank.inference.inference_utils import rank_slates, metrics_on_clicked_slates
-from allrank.click_models.click_utils import click_on_slates
-from allrank.utils.config_utils import instantiate_from_recursive_name_args
-from allrank.models.metrics import ndcg, dcg
 
 import torch
 from torch.utils.data import DataLoader
@@ -26,7 +21,7 @@ from torch import optim
 from copy import deepcopy
 import numpy as np
 
-from common import UserActivity, ranking_func, split_dataset_by_qids, normalize_features, QueryDocumentRelationVector, build_corpus
+from common import UserActivity, ranking_func, split_dataset_by_qids, normalize_features, QueryDocumentRelationVector, Corpus
 from ltr_helper import LTRDatasetMaker, write_records, qid_key
 
 from baselines.panache import compute_hit_counts
@@ -110,28 +105,26 @@ def ltr_rank(clicklogs: list[UserActivity], activities: list[UserActivity]):
     dataset_path = f'.tmp/{uuid.uuid4().hex}/'
     qid_mappings = {qid_key(ua) for ua in clicklogs} | {qid_key(ua) for ua in activities}
     
-    corpus = build_corpus(clicklogs + activities)
+    unique_documents = {doc.infohash: doc for ua in clicklogs + activities for doc in ua.results}.values()
+    corpus = {doc.infohash: doc.torrent_info.title.lower() for doc in unique_documents}
+    corpus = Corpus(corpus)
 
     # create train.txt and vali.txt
     ltrdm_clicklogs = LTRDatasetMaker(clicklogs)
+    ltrdm_clicklogs.corpus = corpus
     ltrdm_clicklogs.qid_mappings = qid_mappings
-    ltrdm_clicklogs.doc_ids = corpus['doc_ids']
-    ltrdm_clicklogs.tfidf = corpus['tfidf']
-    ltrdm_clicklogs.bm25 = corpus['bm25']
     records = ltrdm_clicklogs.compile_records()
     train_records, vali_records, _ = split_dataset_by_qids(records, train_ratio=0.8, val_ratio=0.2)
     del records
 
     # create test.txt
     ltrdm_activities = LTRDatasetMaker(activities)
+    ltrdm_activities.corpus = corpus
     ltrdm_activities.qid_mappings = qid_mappings
-    ltrdm_activities.doc_ids = corpus['doc_ids']
-    ltrdm_activities.tfidf = corpus['tfidf']
-    ltrdm_activities.bm25 = corpus['bm25']
     ltrdm_activities.hit_counts = compute_hit_counts(clicklogs)
-    ltrdm_activities.maay = MAAY(clicklogs)
     ltrdm_activities.click_counts = compute_click_counts(clicklogs)
-    ltrdm_activities.grank = precompute_grank_score_fn(clicklogs)
+    # ltrdm_activities.maay = MAAY(clicklogs)
+    # ltrdm_activities.grank = precompute_grank_score_fn(clicklogs)
     test_records = ltrdm_activities.compile_records()
     
     training = train_records and vali_records and test_records

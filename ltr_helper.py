@@ -22,16 +22,23 @@ def write_records(export_path: str, roles: dict[str, list[ClickThroughRecord]]):
 class LTRDatasetMaker:
     def __init__(self, 
                  activities: list[UserActivity], 
+                 corpus: Corpus = None,
                  hit_counts=None,
                  maay=None,
                  click_counts=None,
                  grank=None):
         self.activities = activities
         self.qid_mappings = {qid_key(ua) for ua in self.activities}
+        self.corpus = corpus
         self.hit_counts = hit_counts
-        self.maay = maay
         self.click_counts = click_counts
+        self.maay = maay
         self.grank = grank
+    
+    def build_corpus(self):
+        unique_documents = {doc.infohash: doc for ua in self.activities for doc in ua.results}.values()
+        corpus = {doc.infohash: doc.torrent_info.title.lower() for doc in unique_documents}
+        self.corpus = Corpus(corpus)
     
     @property
     def qid_mappings(self):
@@ -67,8 +74,6 @@ class LTRDatasetMaker:
         def process_row(ua: UserActivity):
             qid = self.qid_mappings.index((ua.query, ua.issuer, ua.timestamp))
             query_terms = tokenize(ua.query)
-            doc_indices = [self.doc_ids.index(result.infohash) for result in ua.results]
-            bm25_scores = self.bm25.get_batch_scores(query_terms, doc_indices)
             
             row_records = []
             for i, result in enumerate(ua.results):
@@ -77,11 +82,10 @@ class LTRDatasetMaker:
                 record.rel = int(result.infohash == ua.chosen_result.infohash)
 
                 v = QueryDocumentRelationVector()
+                v.title = self.corpus.compute_features(result.infohash, query_terms)
                 v.seeders = result.seeders
                 v.leechers = result.leechers
                 v.age = ua.timestamp - result.torrent_info.timestamp
-                v.bm25 = bm25_scores[i]
-
 
                 other_activities = [
                     act for act in self.activities 
@@ -91,44 +95,24 @@ class LTRDatasetMaker:
                         act.timestamp == ua.timestamp
                     )
                 ]
+
                 hit_counts = self.hit_counts or compute_hit_counts(other_activities)
-                maay = self.maay or MAAY(other_activities)
-                click_counts = self.click_counts or compute_click_counts(other_activities)
-                grank = self.grank or precompute_grank_score_fn(other_activities)
                 v.query_hit_count = sum(hit_counts.get(term, {}).get(result.infohash, 0) for term in query_terms)
-                v.sp = maay.SP(result.infohash, ua.query)
-                v.rel = maay.REL(result.infohash, ua.query)
-                v.pop = maay.POP(result.infohash, ua.query)
-                v.matching_score = maay.matching_score(ua.issuer, result.infohash)
+                click_counts = self.click_counts or compute_click_counts(other_activities)
                 v.click_count = click_counts.get(result.infohash, 0)
-                v.grank_score = grank(result.infohash, ua.issuer)
+                
+                # maay = self.maay or MAAY(other_activities)
+                # v.sp = maay.SP(result.infohash, ua.query)
+                # v.rel = maay.REL(result.infohash, ua.query)
+                # v.pop = maay.POP(result.infohash, ua.query)
+                # v.matching_score = maay.matching_score(ua.issuer, result.infohash)
+                # grank = self.grank or precompute_grank_score_fn(other_activities)
+                # v.grank_score = grank(result.infohash, ua.issuer)
 
                 v.pos = result.pos
                 v.tag_count = len(result.torrent_info.tags)
                 v.size =result.torrent_info.size
-
-                # aggregate tf idf features over all query terms
-                tfidf_results = [self.tfidf.get_tf_idf(result.infohash, term) for term in query_terms]
-
-                v.tf_min = min(r["tf"] for r in tfidf_results)
-                v.tf_max = max(r["tf"] for r in tfidf_results)
-                v.tf_sum = sum(r["tf"] for r in tfidf_results)
-                v.tf_mean = v.tf_sum / len(tfidf_results) if tfidf_results else 0.0
-
-                v.idf_min = min(r["idf"] for r in tfidf_results)
-                v.idf_max = max(r["idf"] for r in tfidf_results)
-                v.idf_sum = sum(r["idf"] for r in tfidf_results)
-                v.idf_mean = v.idf_sum / len(tfidf_results) if tfidf_results else 0.0
-
-                v.tf_idf_min = min(r["tf_idf"] for r in tfidf_results)
-                v.tf_idf_max = max(r["tf_idf"] for r in tfidf_results)
-                v.tf_idf_sum = sum(r["tf_idf"] for r in tfidf_results)
-                v.tf_idf_mean = v.tf_idf_sum / len(tfidf_results) if tfidf_results else 0.0
                 
-                v.tf_variance = sum((r["tf"] - v.tf_mean) ** 2 for r in tfidf_results) / len(tfidf_results) if tfidf_results else 0.0
-                v.idf_variance = sum((r["idf"] - v.idf_mean) ** 2 for r in tfidf_results) / len(tfidf_results) if tfidf_results else 0.0 
-                v.tf_idf_variance = sum((r["tf_idf"] - v.tf_idf_mean) ** 2 for r in tfidf_results) / len(tfidf_results) if tfidf_results else 0.0
-
                 record.qdr = v
                 row_records.append(record)
 

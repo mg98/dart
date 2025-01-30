@@ -1,0 +1,13 @@
+[2025-01-29 11:26:38,497][EL_Local][DEBUG] Rank: 0
+[2025-01-29 11:26:38,497][EL_Local][DEBUG] type(graph): <class 'int'>
+[2025-01-29 11:26:38,497][EL_Local][DEBUG] type(mapping): <class 'decentralizepy.mappings.Linear.Linear'>
+[2025-01-29 11:26:41,861][cmd][DEBUG] Popen(['git', 'version'], cwd=/Users/marcel/Projects/ltr-paper-code/p2p_el, stdin=None, shell=False, universal_newlines=False)
+[2025-01-29 11:26:41,905][cmd][DEBUG] Popen(['git', 'version'], cwd=/Users/marcel/Projects/ltr-paper-code/p2p_el, stdin=None, shell=False, universal_newlines=False)
+[2025-01-29 11:26:41,988][auth][DEBUG] Trying paths: ['/Users/marcel/.docker/config.json', '/Users/marcel/.dockercfg']
+[2025-01-29 11:26:41,989][auth][DEBUG] Found file at path: /Users/marcel/.docker/config.json
+[2025-01-29 11:26:41,989][auth][DEBUG] Found 'auths' section
+[2025-01-29 11:26:41,989][auth][DEBUG] Auth data for ghcr.io is absent. Client might be using a credentials store instead.
+[2025-01-29 11:26:41,989][auth][DEBUG] Found 'credsStore' section
+[2025-01-29 11:26:42,782][Tribler][INFO] User folder: 8083d56a2a7278bd1762a029bcfb0ff41d6cc3bd
+[2025-01-29 11:26:42,782][Node][INFO] Dataset instantiation complete.
+[2025-01-29 11:26:42,883][Tribler][INFO] Model training will execute on mps
