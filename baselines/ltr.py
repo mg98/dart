@@ -3,6 +3,7 @@ import os
 import math
 import shutil
 import uuid
+from dataclasses import dataclass
 
 import allrank.models.losses as losses
 from allrank.config import Config
@@ -21,7 +22,7 @@ from torch import optim
 from copy import deepcopy
 import numpy as np
 
-from common import UserActivity, ranking_func, split_dataset_by_qids, normalize_features, QueryDocumentRelationVector, Corpus
+from common import UserActivity, ClickThroughRecord, ranking_func, split_dataset_by_qids, normalize_features, QueryDocumentRelationVector, Corpus
 from ltr_helper import LTRDatasetMaker, write_records, qid_key
 
 from baselines.panache import compute_hit_counts
@@ -39,6 +40,16 @@ torch.backends.cudnn.benchmark = False
 dev = get_torch_device()
 
 N_FEATURES = len(QueryDocumentRelationVector().features)
+
+@dataclass
+class PrecomputedData:
+    hit_counts: dict[str, int]
+    click_counts: dict[str, int]
+    maay: dict[str, float]
+    grank: dict[str, float]
+    model: torch.nn.Module
+    train_records: list[ClickThroughRecord]
+    vali_records: list[ClickThroughRecord]
 
 def print_model_size(model):
     total_params = sum(p.numel() for p in model.parameters())
@@ -92,7 +103,7 @@ def create_trained_model(config, training=True):
     return model
 
 @ranking_func
-def ltr_rank(clicklogs: list[UserActivity], activities: list[UserActivity]):
+def ltr_rank(clicklogs: list[UserActivity], activities: list[UserActivity], precompute: bool = False, prec_data = None):
     """
     Implementing Learning to Rank using the allRank library with dataset sharding.
     Args:
@@ -110,21 +121,24 @@ def ltr_rank(clicklogs: list[UserActivity], activities: list[UserActivity]):
     corpus = Corpus(corpus)
 
     # create train.txt and vali.txt
-    ltrdm_clicklogs = LTRDatasetMaker(clicklogs)
-    ltrdm_clicklogs.corpus = corpus
-    ltrdm_clicklogs.qid_mappings = qid_mappings
-    records = ltrdm_clicklogs.compile_records()
-    train_records, vali_records, _ = split_dataset_by_qids(records, train_ratio=0.8, val_ratio=0.2)
-    del records
+    if prec_data is None:
+        ltrdm_clicklogs = LTRDatasetMaker(clicklogs)
+        ltrdm_clicklogs.corpus = corpus
+        ltrdm_clicklogs.qid_mappings = qid_mappings
+        records = ltrdm_clicklogs.compile_records()
+        train_records, vali_records, _ = split_dataset_by_qids(records, train_ratio=0.8, val_ratio=0.2)
+        del records
+    else:
+        # Create dummy records with at least one valid entry
+        train_records = prec_data.train_records
+        vali_records = prec_data.vali_records
 
     # create test.txt
     ltrdm_activities = LTRDatasetMaker(activities)
     ltrdm_activities.corpus = corpus
     ltrdm_activities.qid_mappings = qid_mappings
-    ltrdm_activities.hit_counts = compute_hit_counts(clicklogs)
-    ltrdm_activities.click_counts = compute_click_counts(clicklogs)
-    # ltrdm_activities.maay = MAAY(clicklogs)
-    # ltrdm_activities.grank = precompute_grank_score_fn(clicklogs)
+    ltrdm_activities.hit_counts = compute_hit_counts(clicklogs) if prec_data is None else prec_data.hit_counts
+    ltrdm_activities.click_counts = compute_click_counts(clicklogs) if prec_data is None else prec_data.click_counts
     test_records = ltrdm_activities.compile_records()
     
     training = train_records and vali_records and test_records
@@ -134,12 +148,11 @@ def ltr_rank(clicklogs: list[UserActivity], activities: list[UserActivity]):
             "vali": vali_records,
             "test": test_records
         })
-
         normalize_features(dataset_path)
         config.data.path = os.path.join(dataset_path, "_normalized")
 
     try:
-        model = create_trained_model(deepcopy(config), training=True)
+        model = create_trained_model(deepcopy(config), training=True) if prec_data is None else prec_data.model
 
         test_ds = load_libsvm_dataset_role("test", config.data.path, config.data.slate_length)
         test_dl = DataLoader(test_ds, batch_size=config.data.batch_size, num_workers=config.data.num_workers)
@@ -183,5 +196,16 @@ def ltr_rank(clicklogs: list[UserActivity], activities: list[UserActivity]):
         raise e
     finally:
         shutil.rmtree(dataset_path, ignore_errors=True)
+
+    if precompute:
+        return activities, PrecomputedData(
+            hit_counts=ltrdm_activities.hit_counts,
+            click_counts=ltrdm_activities.click_counts,
+            maay=ltrdm_activities.maay,
+            grank=ltrdm_activities.grank,
+            model=model,
+            train_records=train_records,
+            vali_records=vali_records
+        )
 
     return activities

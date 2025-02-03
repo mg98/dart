@@ -19,8 +19,9 @@ def dinx_rank(clicklogs: list[UserActivity], activities: list[UserActivity] = No
 def dinx_rank_by_seeders(_: list[UserActivity], activities: list[UserActivity] = None):
     """
     Implementing DINX's ranking by popularity score measured by the number of seeders.
+    Uses infohash as a deterministic tiebreaker.
     """
     for ua in activities:
-        ua.results.sort(key=lambda x: x.seeders, reverse=True)
+        ua.results.sort(key=lambda x: (x.seeders, x.infohash), reverse=True)
         
     return activities

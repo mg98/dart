@@ -14,14 +14,14 @@ from contextlib import contextmanager
 from sklearn.metrics import ndcg_score
 from sklearn.datasets import load_svmlight_file, dump_svmlight_file
 
-# np.random.seed(42)
+np.random.seed(42)
 
 def ranking_func(_func=None, *, shuffle=True):
     def _decorate(func):
         @functools.wraps(func)
-        def wrapper(arg1, arg2=None):
+        def wrapper(arg1, arg2=None, *args, **kwargs):
             if func.__name__ == 'tribler_rank':
-                return func(arg1, arg2)
+                return func(arg1, arg2, *args, **kwargs)
                 
             clicklogs = arg1
             activities = deepcopy(arg2) if arg2 is not None else deepcopy(arg1)
@@ -34,7 +34,7 @@ def ranking_func(_func=None, *, shuffle=True):
                 np.random.shuffle(clicklogs)
                 np.random.shuffle(activities)
 
-            return func(clicklogs, activities)
+            return func(clicklogs, activities, *args, **kwargs)
         return wrapper
     
     if _func is not None and callable(_func):

@@ -33,54 +33,34 @@ def chronological_eval(user_activities: list[UserActivity], rank_func) -> dict[i
     TEST_DATA_SIZE = 100
     if rank_func.__name__ == "ltr_rank":
         NUM_WORKERS = min(NUM_CORES, 4)
-        NUM_CHUNKS = NUM_WORKERS * max(1, len(user_activities) // 500)
         total_range = gen_fast_range(len(user_activities) - TEST_DATA_SIZE)
     else:
         NUM_WORKERS = min(NUM_CORES, 8)
-        NUM_CHUNKS = NUM_WORKERS * max(1, len(user_activities) // 2000)
         total_range = range(0, len(user_activities) - TEST_DATA_SIZE)
 
-    range_chunks = [
-        [i for i in total_range if i % NUM_CHUNKS == chunk_id]
-        for chunk_id in range(NUM_CHUNKS)
-    ]
+    def process_index(i):
+        try:
+            # Use array indexing instead of slicing to avoid copying
+            context = user_activities[:i]
+            # Create indices for random selection instead of copying data
+            test_indices = random.sample(range(i, len(user_activities)), TEST_DATA_SIZE)
+            test_data = [user_activities[idx] for idx in test_indices]
+            
+            ranked_user_activities = rank_func(context, test_data)
+            ndcgs = {k: mean_ndcg(ranked_user_activities, k) for k in K_RANGE}
+            return i, ndcgs
+        except Exception as e:
+            print(f"Error processing index {i}: {str(e)}")
+            return None
 
-    def process_batch(i_range):
-        batch_results = []
-        position = i_range[0] % NUM_WORKERS
-        
-        for i in tqdm(i_range, 
-                     desc=f"Worker #{position}", 
-                     leave=True, 
-                     position=position):
-            try:
-                # Use array indexing instead of slicing to avoid copying
-                context = user_activities[:i]
-                # Create indices for random selection instead of copying data
-                test_indices = random.sample(range(i, len(user_activities)), TEST_DATA_SIZE)
-                test_data = [user_activities[idx] for idx in test_indices]
-                
-                ranked_user_activities = rank_func(context, test_data)
-                ndcgs = {k: mean_ndcg(ranked_user_activities, k) for k in K_RANGE}
-                batch_results.append((i, ndcgs))
-            except Exception as e:
-                print(f"Error processing index {i}: {str(e)}")
-                continue
-        return batch_results
-
-    results = []
-    for batch_results, _ in Parallel(n_jobs=NUM_WORKERS)(
-            delayed(lambda x: (process_batch(x), x))(r) for r in tqdm(
-                range_chunks,
-                desc="Processing batches",
-                )
-        ):
-        results.extend(batch_results)
+    results = Parallel(n_jobs=NUM_WORKERS, batch_size=4)(
+        delayed(process_index)(i) for i in tqdm(total_range, desc="Processing indices")
+    )
     
-    tqdm.write('')
-    
-    # Sort results by context size (i)
+    # Filter out None results and sort by context size
+    results = [r for r in results if r is not None]
     results.sort(key=lambda x: x[0])
+    
     context_to_ndcgs = {i: ndcgs for i, ndcgs in results}
 
     return context_to_ndcgs

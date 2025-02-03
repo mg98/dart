@@ -3,6 +3,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --time=0
+#SBATCH --gres=gpu:A5000:1
 #SBATCH --cpus-per-task=64
 
 module load cuda12.3/toolkit/12.3
