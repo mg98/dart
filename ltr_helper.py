@@ -26,7 +26,8 @@ class LTRDatasetMaker:
                  hit_counts=None,
                  maay=None,
                  click_counts=None,
-                 grank=None):
+                 grank=None,
+                 comprehensive=False):
         self.activities = activities
         self.qid_mappings = {qid_key(ua) for ua in self.activities}
         self.corpus = corpus
@@ -34,6 +35,7 @@ class LTRDatasetMaker:
         self.click_counts = click_counts
         self.maay = maay
         self.grank = grank
+        self.comprehensive = comprehensive
     
     def build_corpus(self):
         unique_documents = {doc.infohash: doc for ua in self.activities for doc in ua.results}.values()
@@ -101,13 +103,14 @@ class LTRDatasetMaker:
                 click_counts = self.click_counts or compute_click_counts(other_activities)
                 v.click_count = click_counts.get(result.infohash, 0)
                 
-                # maay = self.maay or MAAY(other_activities)
-                # v.sp = maay.SP(result.infohash, ua.query)
-                # v.rel = maay.REL(result.infohash, ua.query)
-                # v.pop = maay.POP(result.infohash, ua.query)
-                # v.matching_score = maay.matching_score(ua.issuer, result.infohash)
-                # grank = self.grank or precompute_grank_score_fn(other_activities)
-                # v.grank_score = grank(result.infohash, ua.issuer)
+                if self.comprehensive:
+                    maay = self.maay or MAAY(other_activities)
+                    v.sp = maay.SP(result.infohash, ua.query)
+                    v.rel = maay.REL(result.infohash, ua.query)
+                    v.pop = maay.POP(result.infohash, ua.query)
+                    v.matching_score = maay.matching_score(ua.issuer, result.infohash)
+                    grank = self.grank or precompute_grank_score_fn(other_activities)
+                    v.grank_score = grank(result.infohash, ua.issuer)
 
                 v.pos = result.pos
                 v.tag_count = len(result.torrent_info.tags)

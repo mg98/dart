@@ -9,9 +9,10 @@ import pandas as pd
 import functools
 import time
 import re
+import warnings
 from rank_bm25 import BM25Okapi
 from contextlib import contextmanager
-from sklearn.metrics import ndcg_score
+from sklearn.metrics import ndcg_score, average_precision_score
 from sklearn.datasets import load_svmlight_file, dump_svmlight_file
 
 np.random.seed(42)
@@ -367,6 +368,14 @@ class QueryDocumentRelationVector:
     tag_count: int = 0
     size: int = 0
 
+    def mask(self, features: list[str]):
+        for feature in features:
+            if hasattr(self, feature):
+                if feature == "title":
+                    setattr(self, feature, TermBasedMetrics())
+                else:
+                    setattr(self, feature, 0)
+
     @property
     def features(self):
         # There is a bug where when the last feature value is 0, sklearn trims it from the dataset,
@@ -399,11 +408,10 @@ class QueryDocumentRelationVector:
                 self.title.match_ratio,
                 self.seeders, self.leechers,
                 self.click_count, self.query_hit_count,
-                # self.sp, self.rel, self.pop, self.matching_score, self.grank_score,
-                self.pos, 
-                self.tag_count, 
-                #  self.size,
-                self.age]
+                self.sp, self.rel, self.pop, self.matching_score, self.grank_score,
+                self.tag_count,
+                self.age,
+                self.pos]
 
     def __str__(self):
         return ' '.join(f'{i}:{val}' for i, val in enumerate(self.features))
@@ -547,7 +555,9 @@ def mean_mrr(user_activities: list[UserActivity]) -> float:
     return np.mean([calc_mrr(ua) for ua in user_activities])
 
 def calc_ndcg(ua: UserActivity, k=None) -> float:
-    """Calculate nDCG@k for a single user activity
+    """
+    Calculate nDCG@k for a single user activity
+    
     Args:
         ua: user activity
         k: number of top results to consider. If None, considers all results
@@ -556,7 +566,6 @@ def calc_ndcg(ua: UserActivity, k=None) -> float:
     predicted_relevance = [1/np.log2(i+2) for i in range(len(ua.results))]
     
     if k is not None:
-        # Truncate both lists to k elements
         true_relevance = true_relevance[:k]
         predicted_relevance = predicted_relevance[:k]
     
@@ -564,6 +573,22 @@ def calc_ndcg(ua: UserActivity, k=None) -> float:
 
 def mean_ndcg(user_activities: list[UserActivity], k=None) -> float:
     return np.round(np.mean([calc_ndcg(ua, k) for ua in user_activities]), 3)
+
+def calc_map(ua: UserActivity, k=None) -> float:
+    """Calculate MAP for a single user activity"""
+    true_relevance = [1 if res.infohash == ua.chosen_result.infohash else 0 for res in ua.results]
+    predicted_relevance = [1/np.log2(i+2) for i in range(len(ua.results))]
+    
+    if k is not None:
+        true_relevance = true_relevance[:k]
+        predicted_relevance = predicted_relevance[:k]
+    
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return average_precision_score(true_relevance, predicted_relevance)
+
+def mean_map(user_activities: list[UserActivity], k=None) -> float:
+    return np.round(np.mean([calc_map(ua, k) for ua in user_activities]), 3)
 
 @contextmanager
 def timing():

@@ -39,8 +39,6 @@ torch.backends.cudnn.benchmark = False
 
 dev = get_torch_device()
 
-N_FEATURES = len(QueryDocumentRelationVector().features)
-
 @dataclass
 class PrecomputedData:
     hit_counts: dict[str, int]
@@ -67,7 +65,8 @@ def create_trained_model(config, training=True):
     Returns:
         model: The created (and optionally trained) model
     """
-    model = make_model(n_features=N_FEATURES, **asdict(config.model, recurse=False))
+    n_features = len(QueryDocumentRelationVector().features)
+    model = make_model(n_features=n_features, **asdict(config.model, recurse=False))
     print_model_size(model)
     model.to(dev)
 
@@ -104,13 +103,6 @@ def create_trained_model(config, training=True):
 
 @ranking_func
 def ltr_rank(clicklogs: list[UserActivity], activities: list[UserActivity], precompute: bool = False, prec_data = None):
-    """
-    Implementing Learning to Rank using the allRank library with dataset sharding.
-    Args:
-        user_activities (list[UserActivity]): The list of user activities.
-        shard_id (int): The ID of the current shard (for sharding purposes).
-        num_shards (int): The total number of shards.
-    """
     config = Config.from_json("./allRank_config.json")
 
     dataset_path = f'.tmp/{uuid.uuid4().hex}/'
@@ -142,6 +134,7 @@ def ltr_rank(clicklogs: list[UserActivity], activities: list[UserActivity], prec
     test_records = ltrdm_activities.compile_records()
     
     training = train_records and vali_records and test_records
+
     if training:
         write_records(dataset_path, {
             "train": train_records,
@@ -207,5 +200,104 @@ def ltr_rank(clicklogs: list[UserActivity], activities: list[UserActivity], prec
             train_records=train_records,
             vali_records=vali_records
         )
+
+    return activities
+
+
+
+###########################
+# CODE FOR ABLATION STUDY #
+###########################
+
+def prepare_ltr_rank(clicklogs: list[UserActivity], activities: list[UserActivity]) -> tuple[list[ClickThroughRecord], list[ClickThroughRecord], list[ClickThroughRecord]]:
+    qid_mappings = {qid_key(ua) for ua in clicklogs} | {qid_key(ua) for ua in activities}
+    
+    unique_documents = {doc.infohash: doc for ua in clicklogs + activities for doc in ua.results}.values()
+    corpus = {doc.infohash: doc.torrent_info.title.lower() for doc in unique_documents}
+    corpus = Corpus(corpus)
+
+    # create train.txt and vali.txt
+    ltrdm_clicklogs = LTRDatasetMaker(clicklogs, comprehensive=True)
+    ltrdm_clicklogs.corpus = corpus
+    ltrdm_clicklogs.qid_mappings = qid_mappings
+    records = ltrdm_clicklogs.compile_records()
+    train_records, vali_records, _ = split_dataset_by_qids(records, train_ratio=0.8, val_ratio=0.2)
+    del records
+    
+    # create test.txt
+    ltrdm_activities = LTRDatasetMaker(activities, comprehensive=True)
+    ltrdm_activities.corpus = corpus
+    ltrdm_activities.qid_mappings = qid_mappings
+    ltrdm_activities.hit_counts = compute_hit_counts(clicklogs)
+    ltrdm_activities.click_counts = compute_click_counts(clicklogs)
+    ltrdm_activities.maay = MAAY(clicklogs)
+    ltrdm_activities.grank = precompute_grank_score_fn(clicklogs)
+    test_records = ltrdm_activities.compile_records()
+    
+    return train_records, vali_records, test_records
+
+def masked_ltr_rank(
+         activities: list[UserActivity],
+         train_records: list[ClickThroughRecord], 
+         vali_records: list[ClickThroughRecord], 
+         test_records: list[ClickThroughRecord], 
+         masked_features: list[str]):
+    
+    for record in train_records + vali_records + test_records:
+        record.qdr.mask(masked_features)
+
+    config = Config.from_json("./allRank_config.json")
+    dataset_path = f'.tmp/{uuid.uuid4().hex}/'
+
+    write_records(dataset_path, {
+        "train": train_records,
+        "vali": vali_records,
+        "test": test_records
+    })
+    normalize_features(dataset_path)
+    config.data.path = os.path.join(dataset_path, "_normalized")
+
+    try:
+        model = create_trained_model(deepcopy(config), training=True)
+
+        test_ds = load_libsvm_dataset_role("test", config.data.path, config.data.slate_length)
+        test_dl = DataLoader(test_ds, batch_size=config.data.batch_size, num_workers=config.data.num_workers)
+        
+        activity_idx = 0
+        model.eval()
+        with torch.no_grad():
+            for xb, yb, indices in test_dl:
+
+                X = xb.type(torch.float32).to(device=dev)
+                y_true = yb.to(device=dev)
+                indices = indices.to(device=dev)
+
+                input_indices = torch.ones_like(y_true).type(torch.long)
+                mask = (y_true == losses.PADDED_Y_VALUE)
+                scores = model.score(X, mask, input_indices)
+
+                # Iterate over each query in the batch
+                for i in range(scores.size(0)):
+                    slate_scores = scores[i]
+                    slate_indices = indices[i]
+                    slate_mask = mask[i]
+                    
+                    valid_scores = slate_scores[~slate_mask]
+                    valid_indices = slate_indices[~slate_mask]
+                    
+                    # Compute the rankings
+                    _, sorted_idx = torch.sort(valid_scores, descending=True)
+                    sorted_original_indices = valid_indices[sorted_idx]
+                    sorted_indices = sorted_original_indices.cpu().tolist()
+                    prev_results = activities[activity_idx].results
+                    activities[activity_idx].results = [
+                        prev_results[i] for i in sorted_indices
+                    ]
+                    
+                    activity_idx += 1
+    except Exception as e:
+        raise e
+    finally:
+        shutil.rmtree(dataset_path, ignore_errors=True)
 
     return activities

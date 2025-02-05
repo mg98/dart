@@ -24,9 +24,10 @@ NUM_CORES = cpu_count()
 def gen_fast_range(end):
     total_range = [0]
     i = 1
-    while i <= end:
+    while i < end:
         total_range.append(i)
-        i = int(i * 1.1) + 1
+        i = int(i * 1.05) + 1
+    total_range.append(end)
     return total_range
 
 def chronological_eval(user_activities: list[UserActivity], rank_func) -> dict[int, dict[int, float]]:

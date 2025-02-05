@@ -10,7 +10,7 @@ from baselines.grank import grank_fast as grank
 from baselines.random import random_rank
 from baselines.tribler import tribler_rank
 from baselines.ltr import ltr_rank
-from common import mean_ndcg, timing
+from common import mean_ndcg, mean_map, timing
 print("Done importing modules")
 
 np.random.seed(123)
@@ -43,7 +43,11 @@ if __name__ == "__main__":
     }
 
     split_idx = int(0.9 * len(user_activities))
-    results = {k: {} for k in K_RANGE}
+    results = {}
+    for k in K_RANGE:
+        results[f"ndcg@{k}"] = {}
+        results[f"map@{k}"] = {}
+    
 
     activities_dump_dir = 'results/reranked_activities'
     os.makedirs(activities_dump_dir, exist_ok=True)
@@ -59,19 +63,30 @@ if __name__ == "__main__":
 
         for k in K_RANGE:
             ndcgs = mean_ndcg(reranked_activities, k=k)
-            results[k][algo_name] = np.mean(ndcgs)
-            print(f"nDCG@{k}: {np.mean(ndcgs)}")
+            results[f"ndcg@{k}"][algo_name] = np.mean(ndcgs)
+            print(f"NDCG@{k}: {np.mean(ndcgs)}")
+
+        for k in K_RANGE:
+            maps = mean_map(reranked_activities, k=k)
+            results[f"map@{k}"][algo_name] = np.mean(maps)
+            print(f"MAP@{k}: {np.mean(maps)}")
         
         with open(os.path.join(activities_dump_dir, f'{algo_name}.pkl'), 'wb') as f:
             pickle.dump(reranked_activities, f)
 
     with open('results/general_ndcg.tsv', 'w') as f:
-        f.write('k\t' + '\t'.join(ranking_algos.keys()) + '\n')
+        f.write('metric\t' + '\t'.join(ranking_algos.keys()) + '\n')
         for k in K_RANGE:
             k_str = 'max' if k is None else str(k)
-            f.write(f'{k_str}')
+            f.write(f'NDCG@{k_str}')
             for algo_name in ranking_algos:
-                f.write(f'\t{results[k][algo_name]:.4f}')
+                f.write(f'\t{results[f"ndcg@{k}"][algo_name]:.4f}')
+            f.write('\n')
+        for k in K_RANGE:
+            k_str = 'max' if k is None else str(k)
+            f.write(f'MAP@{k_str}')
+            for algo_name in ranking_algos:
+                f.write(f'\t{results[f"map@{k}"][algo_name]:.4f}')
             f.write('\n')
     
     print('Success!')

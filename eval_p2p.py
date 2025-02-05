@@ -17,14 +17,14 @@ np.random.seed(42)
 K_RANGE = [5, 10, 30, None]
 
 ranking_algos = {
-    # "tribler": tribler_rank,
-    # "random": random_rank,
+    "tribler": tribler_rank,
+    "random": random_rank,
     "ltr": ltr_rank,
-    # "panache": panache_rank,
-    # "dinx": dinx_rank,
-    # "dinx_s": dinx_rank_by_seeders,
-    # "maay": maay_rank,
-    # "grank": grank
+    "panache": panache_rank,
+    "dinx": dinx_rank,
+    "dinx_s": dinx_rank_by_seeders,
+    "maay": maay_rank,
+    "grank": grank
 }
 
 if __name__ == "__main__":
@@ -37,6 +37,8 @@ if __name__ == "__main__":
     print("Grouping activities by issuer...")
     issuer_groups = {}
     for activity in user_activities:
+        if len(activity.results) < 30: 
+            continue
         issuer = activity.issuer
         if issuer not in issuer_groups:
             issuer_groups[issuer] = []
@@ -58,6 +60,8 @@ if __name__ == "__main__":
         split_idx = int(len(activities) * 0.9)
         all_clicklogs.extend(activities[:split_idx])
 
+    print(f"Total clicklogs: {len(all_clicklogs)}")
+
     algo_results = {}
 
     for algo_name, ranking_algo in ranking_algos.items():
@@ -77,22 +81,18 @@ if __name__ == "__main__":
             user_result = {
                 "num_clicklogs": len(activities),
                 "split_idx": split_idx,
-                "local_ndcg": {},
-                "gossip_ndcg": {},
+                "ndcg": {},
             }
 
-            user_reranked = ranking_algo(activities[:split_idx], activities[split_idx:])
             if algo_name == "ltr":
-                user_reranked_gossip = ranking_algo(all_clicklogs, activities[split_idx:], prec_data=prec_data)
+                user_reranked = ranking_algo(all_clicklogs, activities[split_idx:], prec_data=prec_data)
             else:
-                user_reranked_gossip = ranking_algo(all_clicklogs, activities[split_idx:])
+                user_reranked = ranking_algo(all_clicklogs, activities[split_idx:])
             
             for k in K_RANGE:
                 user_ndcgs = mean_ndcg(user_reranked, k=k)
-                user_result["local_ndcg"][k] = float(np.mean(user_ndcgs))
-                user_ndcgs = mean_ndcg(user_reranked_gossip, k=k)
-                user_result["gossip_ndcg"][k] = float(np.mean(user_ndcgs))
-                print(f'User {issuer} ({len(activities)}) nDCG@{k}: {user_result["local_ndcg"][k]} (local), {user_result["gossip_ndcg"][k]} (gossip)')
+                user_result["ndcg"][k] = float(np.mean(user_ndcgs))
+                print(f'User {issuer} ({len(activities)}) nDCG@{k}: {user_result["ndcg"][k]}')
             
             return user_result
 
@@ -103,5 +103,5 @@ if __name__ == "__main__":
         algo_results[algo_name] = results
 
     # Save results to JSON file
-    with open('results/p2p_ltr.json', 'w') as f:
+    with open('results/p2p.json', 'w') as f:
         json.dump(algo_results, f)
