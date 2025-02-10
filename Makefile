@@ -7,7 +7,6 @@ clean:
 fetch:
 	rsync -az mgregori@fs3.das6.tudelft.nl:~/tribler/crawl .
 	$(PYTHON) fetch.py
-	$(PYTHON) generate_tribler_ltr_dataset.py
 
 push:
 	rsync -az tribler_data/* mgregori@fs3.das6.tudelft.nl:/var/scratch/mgregori/datasets/tribler_crawl/
@@ -17,5 +16,13 @@ run: clean
 	
 run-slurm:
 	sbatch run.sh
+
+all:
+	sbatch run_general_eval.sh
+	sbatch run_context_eval.sh
+	sbatch run_context_eval.sh --ltr
+	sbatch run_p2p_eval.sh
+	sbatch run_p2p_eval.sh --ltr
+	sbatch run_ablation_eval.sh
 
 .PHONY: clean fetch push run run-slurm

@@ -4,11 +4,11 @@ import os
 import numpy as np
 from argparse import ArgumentParser
 from baselines.ltr import prepare_ltr_rank, masked_ltr_rank
-from common import mean_ndcg
+from common import mean_ndcg, mean_map
 from copy import deepcopy
 print("Done importing modules")
 
-np.random.seed(123)
+np.random.seed(42)
 
 K_RANGE = [5, 10, 30, None]
 
@@ -38,22 +38,26 @@ if __name__ == "__main__":
     np.random.shuffle(clicklogs)
     np.random.shuffle(activities)
 
+    with open('tribler_data/test_activities.pkl', 'rb') as f:
+        activities = pickle.load(f)
+
     train_records, vali_records, test_records = prepare_ltr_rank(
         clicklogs,  
         activities
     )
 
     with open('results/ablation_study.tsv', 'w') as f:
-        f.write('masked\tNDCG@' + '\tNDCG@'.join(map(str, K_RANGE)) + '\n')
+        f.write('masked\tNDCG@' + '\tNDCG@'.join(map(str, K_RANGE)) + '\tMAP@' + '\tMAP@'.join(map(str, K_RANGE)) + '\n')
 
         for mask in [
+            [],
             ["title"],
             ["seeders"],
             ["leechers"],
             ["click_count"],
             ["query_hit_count"],
-            ["sp", "rel", "pop", "matching_score"],
-            ["grank_score"],
+            # ["sp", "rel", "pop", "matching_score"],
+            # ["grank_score"],
             ["pos"],
             ["tag_count"],
             ["age"],
@@ -61,9 +65,9 @@ if __name__ == "__main__":
             print(f"Masking {mask}")
             reranked_activities = masked_ltr_rank(
                 deepcopy(activities),
-                train_records,
-                vali_records,
-                test_records,
+                deepcopy(train_records),
+                deepcopy(vali_records),
+                deepcopy(test_records),
                 mask
             )
             f.write(f'{",".join(mask)}')
@@ -71,6 +75,10 @@ if __name__ == "__main__":
                 ndcgs = mean_ndcg(reranked_activities, k=k)
                 print(f"NDCG@{k}: {np.mean(ndcgs)}")
                 f.write(f'\t{np.mean(ndcgs):.4f}')
+            for k in K_RANGE:
+                maps = mean_map(reranked_activities, k=k)
+                print(f"MAP@{k}: {np.mean(maps)}")
+                f.write(f'\t{np.mean(maps):.4f}')
             f.write('\n')
         
         print('Success!')

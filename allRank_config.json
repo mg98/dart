@@ -46,12 +46,9 @@
       "early_stopping_patience": 5,
       "gradient_clipping_norm": null
     },
-    "val_metric": "ndcg_5",
+    "val_metric": "mrr_600",
     "metrics": [
-      "ndcg_5",
-      "ndcg_10",
-      "ndcg_30",
-      "ndcg_60"
+      "mrr_600"
     ],
     "loss": {
       "name": "neuralNDCG",

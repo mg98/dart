@@ -368,8 +368,8 @@ class QueryDocumentRelationVector:
     tag_count: int = 0
     size: int = 0
 
-    def mask(self, features: list[str]):
-        for feature in features:
+    def mask(self, masked_features: list[str]):
+        for feature in masked_features:
             if hasattr(self, feature):
                 if feature == "title":
                     setattr(self, feature, TermBasedMetrics())
@@ -408,7 +408,7 @@ class QueryDocumentRelationVector:
                 self.title.match_ratio,
                 self.seeders, self.leechers,
                 self.click_count, self.query_hit_count,
-                self.sp, self.rel, self.pop, self.matching_score, self.grank_score,
+                # self.sp, self.rel, self.pop, self.matching_score, self.grank_score,
                 self.tag_count,
                 self.age,
                 self.pos]
@@ -544,15 +544,16 @@ def normalize_features(ds_path: str,
     with open(vali_normalized_path, "w"):
         dump_svmlight_file(x_vali_normalized.T, y_vali, vali_normalized_path, query_id=query_ids_vali)
 
-def calc_mrr(ua):
+def calc_mrr(ua: UserActivity) -> float:
     """Calculate Mean Reciprocal Rank for a single user activity"""
-    for i, res in enumerate(ua.results):
-        if res.infohash == ua.chosen_result.infohash:
-            return 1.0 / (i + 1)
-    return 0.0
+    return 1.0 / (ua.chosen_index + 1)
 
 def mean_mrr(user_activities: list[UserActivity]) -> float:
     return np.mean([calc_mrr(ua) for ua in user_activities])
+
+def mean_recall(user_activities: list[UserActivity], k: int) -> float:
+    recalls = sum(1 if ua.chosen_index <= k else 0 for ua in user_activities)
+    return recalls / len(user_activities)
 
 def calc_ndcg(ua: UserActivity, k=None) -> float:
     """
@@ -589,6 +590,7 @@ def calc_map(ua: UserActivity, k=None) -> float:
 
 def mean_map(user_activities: list[UserActivity], k=None) -> float:
     return np.round(np.mean([calc_map(ua, k) for ua in user_activities]), 3)
+
 
 @contextmanager
 def timing():

@@ -1,7 +1,8 @@
 import pickle
+from allrank.config import Config
 from baselines.ltr import ltr_rank
 import numpy as np
-from common import mean_ndcg
+from common import mean_ndcg, mean_map
 from collections import defaultdict
 from tqdm import tqdm
 import json
@@ -28,6 +29,8 @@ ranking_algos = {
 }
 
 if __name__ == "__main__":
+    config = Config.from_json("./allRank_config.json")
+    config.data.path = ''
 
     print("Loading user activities...")
     with open('user_activities.pkl', 'rb') as f:
@@ -51,7 +54,7 @@ if __name__ == "__main__":
     # Create new filtered list with just the top 32 users' activities
     grouped_activities = defaultdict(list)
     for issuer, activities in sorted_issuers:
-        np.random.shuffle(activities)
+        activities.sort(key=lambda x: x.timestamp)
         grouped_activities[issuer] = activities
 
     # Evaluate all activities for reference
@@ -59,6 +62,7 @@ if __name__ == "__main__":
     for issuer, activities in tqdm(grouped_activities.items()):
         split_idx = int(len(activities) * 0.9)
         all_clicklogs.extend(activities[:split_idx])
+    np.random.shuffle(all_clicklogs)
 
     print(f"Total clicklogs: {len(all_clicklogs)}")
 
@@ -71,7 +75,7 @@ if __name__ == "__main__":
 
         if algo_name == "ltr":
             print("Precomputing LTR for all clicklogs...")
-            _, prec_data = ranking_algo(all_clicklogs, all_clicklogs[:1], precompute=True)
+            _, prec_data = ltr_rank(all_clicklogs, all_clicklogs[:1], config, precompute=True)
             print("Precomputing LTR done!")
 
         def process_user(issuer_activities):
@@ -82,6 +86,7 @@ if __name__ == "__main__":
                 "num_clicklogs": len(activities),
                 "split_idx": split_idx,
                 "ndcg": {},
+                "map": {}
             }
 
             if algo_name == "ltr":
@@ -92,7 +97,9 @@ if __name__ == "__main__":
             for k in K_RANGE:
                 user_ndcgs = mean_ndcg(user_reranked, k=k)
                 user_result["ndcg"][k] = float(np.mean(user_ndcgs))
-                print(f'User {issuer} ({len(activities)}) nDCG@{k}: {user_result["ndcg"][k]}')
+                user_maps = mean_map(user_reranked, k=k)
+                user_result["map"][k] = float(np.mean(user_maps))
+                print(f'User {issuer} ({len(activities)}) nDCG@{k}: {user_result["ndcg"][k]}, MAP@{k}: {user_result["map"][k]}')
             
             return user_result
 
@@ -105,3 +112,5 @@ if __name__ == "__main__":
     # Save results to JSON file
     with open('results/p2p.json', 'w') as f:
         json.dump(algo_results, f)
+    
+    print('Success!')

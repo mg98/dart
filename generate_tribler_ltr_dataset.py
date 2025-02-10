@@ -8,7 +8,7 @@ from collections import defaultdict
 from tqdm import tqdm
 from common import *
 from baselines.panache import compute_hit_counts
-from ltr_helper import LTRDatasetMaker
+from ltr_helper import *
 
 np.random.seed(42)
 
@@ -18,100 +18,47 @@ os.makedirs(EXPORT_PATH, exist_ok=True)
 
 with open('user_activities.pkl', 'rb') as f:
     user_activities = pickle.load(f)
+np.random.shuffle(user_activities)
 
-################
-# MAIN DATASET #
-################
+split_idx = int(0.9 * len(user_activities))
+clicklogs = user_activities[:split_idx]
+activities = user_activities[split_idx:]
+
+print("Storing test activities...")
+with open('tribler_data/test_activities.pkl', 'wb') as f:
+    pickle.dump(activities, f)
+
+
+print("Building corpus...")
+qid_mappings = {qid_key(ua) for ua in clicklogs} | {qid_key(ua) for ua in activities}
+unique_documents = {doc.infohash: doc for ua in clicklogs + activities for doc in ua.results}.values()
+corpus = {doc.infohash: doc.torrent_info.title.lower() for doc in unique_documents}
+corpus = Corpus(corpus)
+
+print("Generating train/vali dataset...")
+ltrdm_clicklogs = LTRDatasetMaker(clicklogs)
+ltrdm_clicklogs.corpus = corpus
+ltrdm_clicklogs.qid_mappings = qid_mappings
+records = ltrdm_clicklogs.compile_records()
+train_records, vali_records, _ = split_dataset_by_qids(records, train_ratio=0.8, val_ratio=0.2)
+del records
+
+print("Generating test dataset...")
+ltrdm_activities = LTRDatasetMaker(activities)
+ltrdm_activities.corpus = corpus
+ltrdm_activities.qid_mappings = qid_mappings
+ltrdm_activities.hit_counts = compute_hit_counts(clicklogs)
+ltrdm_activities.click_counts = compute_click_counts(clicklogs)
+test_records = ltrdm_activities.compile_records()
 
 print("Generating main dataset...")
 
-ltrdm = LTRDatasetMaker(user_activities)
-ltrdm.build_corpus()
-ltrdm.generate(EXPORT_PATH)
-ltrdm.write_queries(EXPORT_PATH)
+dataset_path = 'tribler_data'
+write_records(dataset_path, {
+    "train": train_records,
+    "vali": vali_records,
+    "test": test_records
+})
+normalize_features(dataset_path)
 
-#########################
-# USER-SPECIFIC DATASET #
-#########################
-
-print("Generating user-specific datasets...")
-
-# Get top users by number of queries
-user_query_counts = defaultdict(int)
-for ua in ltrdm.activities:
-    user_query_counts[ua.issuer] += 1
-
-top_users = sorted(user_query_counts.items(), key=lambda x: x[1], reverse=True)[:32]
-top_users = [user for user, _ in top_users]
-
-# Create per-user datasets
-for user in tqdm(top_users):
-    # Get activities for this user
-    user_activities = [ua for ua in ltrdm.activities if ua.issuer == user]
-    user_activities.sort(key=lambda x: x.timestamp)
-    
-    # Create user directory
-    user_dir = os.path.join(EXPORT_PATH, "by_user", str(user))
-    os.makedirs(user_dir, exist_ok=True)
-
-    # Create dataset maker for this user's activities
-    user_ltrdm = LTRDatasetMaker(user_activities)
-    user_ltrdm.corpus = ltrdm.corpus
-    user_ltrdm.qid_mappings = ltrdm.qid_mappings
-    
-    # Generate dataset
-    user_ltrdm.generate(user_dir, normalize=False)
-    
-# Create temporary combined files for normalization
-temp_dir = os.path.join(EXPORT_PATH, "by_user", "temp")
-os.makedirs(temp_dir, exist_ok=True)
-
-try:
-    # Combine all user files
-    for file_type in ['train.txt', 'vali.txt', 'test.txt']:
-        with open(os.path.join(temp_dir, file_type), 'w') as outfile:
-            for user in top_users:
-                user_dir = os.path.join(EXPORT_PATH, "by_user", str(user))
-                with open(os.path.join(user_dir, file_type)) as infile:
-                    outfile.write(infile.read())
-
-    # Run normalization on combined files
-    normalize_features(temp_dir)
-
-    # Split normalized files back into user-specific files
-    for file_type in ['train.txt', 'vali.txt', 'test.txt']:
-        # Read the full normalized file
-        with open(os.path.join(temp_dir, '_normalized', file_type)) as f:
-            normalized_lines = f.readlines()
-        
-        # Track current position in normalized lines
-        pos = 0
-        
-        # Split back into user files
-        for user in top_users:
-            user_dir = os.path.join(EXPORT_PATH, "by_user", str(user))
-            norm_dir = os.path.join(user_dir, '_normalized')
-            os.makedirs(norm_dir, exist_ok=True)
-            
-            # Count lines in original user file
-            with open(os.path.join(user_dir, file_type)) as f:
-                line_count = sum(1 for _ in f)
-                
-            # Write that many normalized lines to user's normalized file
-            with open(os.path.join(norm_dir, file_type), 'w') as f:
-                f.writelines(normalized_lines[pos:pos+line_count])
-            pos += line_count
-
-except Exception as e:
-    raise e
-
-finally:
-    shutil.rmtree(temp_dir)
-
-# Assert no empty dataset files exist
-by_user_dir = os.path.join(EXPORT_PATH, "by_user")
-for root, dirs, files in os.walk(by_user_dir):
-    for file in files:
-        if file in ['train.txt', 'vali.txt', 'test.txt']:
-            file_path = os.path.join(root, file)
-            assert os.path.getsize(file_path) > 0, f"Found empty dataset file: {file_path}"
+print("Done")

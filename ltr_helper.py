@@ -114,14 +114,14 @@ class LTRDatasetMaker:
 
                 v.pos = result.pos
                 v.tag_count = len(result.torrent_info.tags)
-                v.size =result.torrent_info.size
+                v.size = result.torrent_info.size
                 
                 record.qdr = v
                 row_records.append(record)
 
             return row_records
         
-        parallel_records = Parallel(n_jobs=8, batch_size=8)(
+        parallel_records = Parallel(n_jobs=-1, batch_size=8)(
             delayed(process_row)(ua)
             for ua in self.activities
         )

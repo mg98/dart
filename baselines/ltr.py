@@ -3,6 +3,7 @@ import os
 import math
 import shutil
 import uuid
+import pickle
 from dataclasses import dataclass
 
 import allrank.models.losses as losses
@@ -102,50 +103,55 @@ def create_trained_model(config, training=True):
     return model
 
 @ranking_func
-def ltr_rank(clicklogs: list[UserActivity], activities: list[UserActivity], precompute: bool = False, prec_data = None):
-    config = Config.from_json("./allRank_config.json")
+def ltr_rank(clicklogs: list[UserActivity], activities: list[UserActivity], config: Config, precompute: bool = False, prec_data = None):
 
-    dataset_path = f'.tmp/{uuid.uuid4().hex}/'
-    qid_mappings = {qid_key(ua) for ua in clicklogs} | {qid_key(ua) for ua in activities}
-    
-    unique_documents = {doc.infohash: doc for ua in clicklogs + activities for doc in ua.results}.values()
-    corpus = {doc.infohash: doc.torrent_info.title.lower() for doc in unique_documents}
-    corpus = Corpus(corpus)
+    if config.data.path == '':
+        dataset_path = f'.tmp/{uuid.uuid4().hex}/'
+        qid_mappings = {qid_key(ua) for ua in clicklogs} | {qid_key(ua) for ua in activities}
+        
+        unique_documents = {doc.infohash: doc for ua in clicklogs + activities for doc in ua.results}.values()
+        corpus = {doc.infohash: doc.torrent_info.title.lower() for doc in unique_documents}
+        corpus = Corpus(corpus)
 
-    # create train.txt and vali.txt
-    if prec_data is None:
-        ltrdm_clicklogs = LTRDatasetMaker(clicklogs)
-        ltrdm_clicklogs.corpus = corpus
-        ltrdm_clicklogs.qid_mappings = qid_mappings
-        records = ltrdm_clicklogs.compile_records()
-        train_records, vali_records, _ = split_dataset_by_qids(records, train_ratio=0.8, val_ratio=0.2)
-        del records
+        # create train.txt and vali.txt
+        if prec_data is None:
+            ltrdm_clicklogs = LTRDatasetMaker(clicklogs)
+            ltrdm_clicklogs.corpus = corpus
+            ltrdm_clicklogs.qid_mappings = qid_mappings
+            records = ltrdm_clicklogs.compile_records()
+            train_records, vali_records, _ = split_dataset_by_qids(records, train_ratio=0.8, val_ratio=0.2)
+            del records
+        else:
+            # Create dummy records with at least one valid entry
+            train_records = prec_data.train_records
+            vali_records = prec_data.vali_records
+
+        # create test.txt
+        ltrdm_activities = LTRDatasetMaker(activities)
+        ltrdm_activities.corpus = corpus
+        ltrdm_activities.qid_mappings = qid_mappings
+        ltrdm_activities.hit_counts = compute_hit_counts(clicklogs) if prec_data is None else prec_data.hit_counts
+        ltrdm_activities.click_counts = compute_click_counts(clicklogs) if prec_data is None else prec_data.click_counts
+        test_records = ltrdm_activities.compile_records()
+        
+        training = train_records and vali_records and test_records
+
+        if training:
+            write_records(dataset_path, {
+                "train": train_records,
+                "vali": vali_records,
+                "test": test_records
+            })
+            normalize_features(dataset_path)
+            config.data.path = os.path.join(dataset_path, "_normalized")
     else:
-        # Create dummy records with at least one valid entry
-        train_records = prec_data.train_records
-        vali_records = prec_data.vali_records
-
-    # create test.txt
-    ltrdm_activities = LTRDatasetMaker(activities)
-    ltrdm_activities.corpus = corpus
-    ltrdm_activities.qid_mappings = qid_mappings
-    ltrdm_activities.hit_counts = compute_hit_counts(clicklogs) if prec_data is None else prec_data.hit_counts
-    ltrdm_activities.click_counts = compute_click_counts(clicklogs) if prec_data is None else prec_data.click_counts
-    test_records = ltrdm_activities.compile_records()
-    
-    training = train_records and vali_records and test_records
-
-    if training:
-        write_records(dataset_path, {
-            "train": train_records,
-            "vali": vali_records,
-            "test": test_records
-        })
-        normalize_features(dataset_path)
-        config.data.path = os.path.join(dataset_path, "_normalized")
+        # skip compiling ltr dataset; override test activities
+        with open('tribler_data/test_activities.pkl', 'rb') as f:
+            activities = pickle.load(f)
 
     try:
         model = create_trained_model(deepcopy(config), training=True) if prec_data is None else prec_data.model
+        torch.save(model.state_dict(), 'dart_model.pt')
 
         test_ds = load_libsvm_dataset_role("test", config.data.path, config.data.slate_length)
         test_dl = DataLoader(test_ds, batch_size=config.data.batch_size, num_workers=config.data.num_workers)
@@ -188,7 +194,8 @@ def ltr_rank(clicklogs: list[UserActivity], activities: list[UserActivity], prec
     except Exception as e:
         raise e
     finally:
-        shutil.rmtree(dataset_path, ignore_errors=True)
+        if config.data.path.startswith('.tmp'):
+            shutil.rmtree(dataset_path, ignore_errors=True)
 
     if precompute:
         return activities, PrecomputedData(
@@ -217,7 +224,7 @@ def prepare_ltr_rank(clicklogs: list[UserActivity], activities: list[UserActivit
     corpus = Corpus(corpus)
 
     # create train.txt and vali.txt
-    ltrdm_clicklogs = LTRDatasetMaker(clicklogs, comprehensive=True)
+    ltrdm_clicklogs = LTRDatasetMaker(clicklogs, comprehensive=False)
     ltrdm_clicklogs.corpus = corpus
     ltrdm_clicklogs.qid_mappings = qid_mappings
     records = ltrdm_clicklogs.compile_records()
@@ -225,13 +232,13 @@ def prepare_ltr_rank(clicklogs: list[UserActivity], activities: list[UserActivit
     del records
     
     # create test.txt
-    ltrdm_activities = LTRDatasetMaker(activities, comprehensive=True)
+    ltrdm_activities = LTRDatasetMaker(activities, comprehensive=False)
     ltrdm_activities.corpus = corpus
     ltrdm_activities.qid_mappings = qid_mappings
     ltrdm_activities.hit_counts = compute_hit_counts(clicklogs)
     ltrdm_activities.click_counts = compute_click_counts(clicklogs)
-    ltrdm_activities.maay = MAAY(clicklogs)
-    ltrdm_activities.grank = precompute_grank_score_fn(clicklogs)
+    # ltrdm_activities.maay = MAAY(clicklogs)
+    # ltrdm_activities.grank = precompute_grank_score_fn(clicklogs)
     test_records = ltrdm_activities.compile_records()
     
     return train_records, vali_records, test_records
