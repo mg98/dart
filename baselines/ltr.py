@@ -195,7 +195,7 @@ def ltr_rank(clicklogs: list[UserActivity], activities: list[UserActivity], conf
         raise e
     finally:
         if config.data.path.startswith('.tmp'):
-            shutil.rmtree(dataset_path, ignore_errors=True)
+            shutil.rmtree(config.data.path, ignore_errors=True)
 
     if precompute:
         return activities, PrecomputedData(

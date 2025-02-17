@@ -90,7 +90,7 @@ if __name__ == "__main__":
             }
 
             if algo_name == "ltr":
-                user_reranked = ranking_algo(all_clicklogs, activities[split_idx:], prec_data=prec_data)
+                user_reranked = ltr_rank(all_clicklogs, activities[split_idx:], config, prec_data=prec_data)
             else:
                 user_reranked = ranking_algo(all_clicklogs, activities[split_idx:])
             
