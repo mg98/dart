@@ -2,7 +2,7 @@ import json
 import os
 import pickle
 import time
-from common import *
+from utils.common import *
 
 metadata_db_path = os.path.expanduser('./metadata.db')
 

@@ -12,7 +12,7 @@ from baselines.grank import grank_fast as grank
 from baselines.random import random_rank
 from baselines.tribler import tribler_rank
 from baselines.ltr import ltr_rank
-from common import UserActivity, mean_map, timing
+from utils.common import UserActivity, mean_map, timing
 print("Done importing modules")
 
 np.random.seed(42)

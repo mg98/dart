@@ -11,7 +11,7 @@ from baselines.grank import grank_fast as grank
 from baselines.random import random_rank
 from baselines.tribler import tribler_rank
 from baselines.ltr import ltr_rank
-from common import mean_mrr, timing
+from utils.common import mean_mrr, timing
 print("Done importing modules")
 
 np.random.seed(42)

@@ -2,7 +2,7 @@ import pickle
 from allrank.config import Config
 from baselines.ltr import ltr_rank
 import numpy as np
-from common import mean_mrr
+from utils.common import mean_mrr
 from collections import defaultdict
 from tqdm import tqdm
 import json

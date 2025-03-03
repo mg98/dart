@@ -1,5 +1,5 @@
 from collections import Counter
-from common import UserActivity, ranking_func
+from utils.common import UserActivity, ranking_func
 
 def compute_click_counts(clicklogs: list[UserActivity]):
     return Counter(ua.chosen_result.infohash for ua in clicklogs if ua.chosen_result)

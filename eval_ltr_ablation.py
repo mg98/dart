@@ -4,7 +4,7 @@ import os
 import numpy as np
 from argparse import ArgumentParser
 from baselines.ltr import prepare_ltr_rank, masked_ltr_rank
-from common import mean_mrr
+from utils.common import mean_mrr
 from copy import deepcopy
 print("Done importing modules")
 

@@ -23,8 +23,8 @@ from torch import optim
 from copy import deepcopy
 import numpy as np
 
-from common import UserActivity, ClickThroughRecord, ranking_func, split_dataset_by_qids, normalize_features, QueryDocumentRelationVector, Corpus
-from ltr_helper import LTRDatasetMaker, write_records, qid_key
+from utils.common import UserActivity, ClickThroughRecord, ranking_func, split_dataset_by_qids, normalize_features, QueryDocumentRelationVector, Corpus
+from utils.ltr_helper import LTRDatasetMaker, write_records, qid_key
 
 from baselines.panache import compute_hit_counts
 from baselines.maay import MAAY

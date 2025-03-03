@@ -6,7 +6,7 @@ from allrank.config import Config
 from joblib import cpu_count
 from tqdm import tqdm
 from baselines.ltr import ltr_rank
-from common import UserActivity, mean_map, timing
+from utils.common import UserActivity, mean_mrr, timing
 print("Done importing modules")
 
 np.random.seed(42)
@@ -45,7 +45,7 @@ if __name__ == "__main__":
             config
         )
     
-    mrr = mean_map(ranked_user_activities)
+    mrr = mean_mrr(ranked_user_activities)
     print(f"MRR: {mrr}")
     with open('./results/ltr_context_mrr.tsv', 'a+') as f:
         f.write(f"{args.size}\t{mrr}\n")

@@ -6,9 +6,9 @@ import pandas as pd
 import shutil
 from collections import defaultdict
 from tqdm import tqdm
-from common import *
+from utils.common import *
 from baselines.panache import compute_hit_counts
-from ltr_helper import *
+from utils.ltr_helper import *
 
 np.random.seed(42)
 

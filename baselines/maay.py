@@ -1,7 +1,7 @@
 from collections import defaultdict
 from joblib import Parallel, delayed
 import numpy as np
-from common import ranking_func
+from utils.common import ranking_func
 
 @ranking_func
 def maay_rank(clicklogs: list, activities: list = None):

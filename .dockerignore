@@ -1,9 +1,0 @@
-.idea/
-.vscode/
-.git/
-__pycache__/
-aolia/
-crawl/
-tribler_data/
-allRank/
-metadata.db

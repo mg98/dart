@@ -1,6 +1,6 @@
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
-from common import UserActivity, ranking_func
+from utils.common import UserActivity, ranking_func
 from functools import cache
 
 @ranking_func

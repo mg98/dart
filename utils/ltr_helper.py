@@ -6,7 +6,7 @@ from baselines.maay import MAAY
 from baselines.dinx import compute_click_counts
 from baselines.grank import precompute_grank_score_fn
 from joblib import Parallel, delayed
-from common import *
+from utils.common import *
 
 EXPORT_PATH = "./ltr_dataset"
 
