@@ -6,7 +6,7 @@ This repository contains the code used to produce the results in _Decentralized 
 
 ## Dataset
 
-As part of this work, we also release a new LTR dataset based on workload from the decentralized application Tribler. The dataset and a pre-trained DART model are available in [`artifacts/`](./artifacts).
+As part of this work, we also release a new LTR dataset based on workload from the decentralized application [Tribler](https://github.com/Tribler/tribler). The dataset and a pre-trained DART model are available in [`artifacts/`](./artifacts).
 
 If you use this dataset, please cite the following paper:
 
