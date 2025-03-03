@@ -4,13 +4,11 @@ import os
 import numpy as np
 from argparse import ArgumentParser
 from baselines.ltr import prepare_ltr_rank, masked_ltr_rank
-from common import mean_ndcg, mean_map
+from common import mean_mrr
 from copy import deepcopy
 print("Done importing modules")
 
 np.random.seed(42)
-
-K_RANGE = [5, 10, 30, None]
 
 if __name__ == "__main__":
 
@@ -47,7 +45,7 @@ if __name__ == "__main__":
     )
 
     with open('results/ablation_study.tsv', 'w') as f:
-        f.write('masked\tNDCG@' + '\tNDCG@'.join(map(str, K_RANGE)) + '\tMAP@' + '\tMAP@'.join(map(str, K_RANGE)) + '\n')
+        f.write('masked\tMRR\n')
 
         for mask in [
             [],
@@ -71,14 +69,9 @@ if __name__ == "__main__":
                 mask
             )
             f.write(f'{",".join(mask)}')
-            for k in K_RANGE:
-                ndcgs = mean_ndcg(reranked_activities, k=k)
-                print(f"NDCG@{k}: {np.mean(ndcgs)}")
-                f.write(f'\t{np.mean(ndcgs):.4f}')
-            for k in K_RANGE:
-                maps = mean_map(reranked_activities, k=k)
-                print(f"MAP@{k}: {np.mean(maps)}")
-                f.write(f'\t{np.mean(maps):.4f}')
+            mrr = mean_mrr(reranked_activities)
+            print(f"MRR: {mrr}")
+            f.write(f'\t{mrr:.4f}')
             f.write('\n')
         
         print('Success!')

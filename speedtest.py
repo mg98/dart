@@ -44,7 +44,7 @@ if __name__ == "__main__":
     ranking_algos = {
         "Tribler": tribler_rank, # must be first
         "Random": random_rank,
-        "LTR": ltr_rank,
+        "DART": ltr_rank,
         "Panaché": panache_rank,
         "DINX": dinx_rank,
         "DINX (seeders)": dinx_rank_by_seeders,

@@ -2,7 +2,7 @@ import pickle
 from allrank.config import Config
 from baselines.ltr import ltr_rank
 import numpy as np
-from common import mean_ndcg, mean_map
+from common import mean_mrr
 from collections import defaultdict
 from tqdm import tqdm
 import json
@@ -20,7 +20,7 @@ K_RANGE = [5, 10, 30, None]
 ranking_algos = {
     "tribler": tribler_rank,
     "random": random_rank,
-    "ltr": ltr_rank,
+    "dart": ltr_rank,
     "panache": panache_rank,
     "dinx": dinx_rank,
     "dinx_s": dinx_rank_by_seeders,
@@ -73,7 +73,7 @@ if __name__ == "__main__":
         results = []  # Store results for each user
         issuer_ndcgs = defaultdict(lambda: defaultdict(float))
 
-        if algo_name == "ltr":
+        if algo_name == "dart":
             print("Precomputing LTR for all clicklogs...")
             _, prec_data = ltr_rank(all_clicklogs, all_clicklogs[:1], config, precompute=True)
             print("Precomputing LTR done!")
@@ -85,21 +85,17 @@ if __name__ == "__main__":
             user_result = {
                 "num_clicklogs": len(activities),
                 "split_idx": split_idx,
-                "ndcg": {},
                 "map": {}
             }
 
-            if algo_name == "ltr":
+            if algo_name == "dart":
                 user_reranked = ltr_rank(all_clicklogs, activities[split_idx:], config, prec_data=prec_data)
             else:
                 user_reranked = ranking_algo(all_clicklogs, activities[split_idx:])
             
-            for k in K_RANGE:
-                user_ndcgs = mean_ndcg(user_reranked, k=k)
-                user_result["ndcg"][k] = float(np.mean(user_ndcgs))
-                user_maps = mean_map(user_reranked, k=k)
-                user_result["map"][k] = float(np.mean(user_maps))
-                print(f'User {issuer} ({len(activities)}) nDCG@{k}: {user_result["ndcg"][k]}, MAP@{k}: {user_result["map"][k]}')
+            user_mrrs = mean_mrr(user_reranked, k=k)
+            user_result["mrr"] = float(np.mean(user_mrrs))
+            print(f'User {issuer} ({len(activities)}) MRR: {user_result["mrr"]}')
             
             return user_result
 

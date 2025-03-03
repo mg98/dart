@@ -127,7 +127,7 @@ if __name__ == "__main__":
         "grank": grank
     }
     if args.ltr:
-        ranking_algos = {"ltr": ltr_rank}
+        ranking_algos = {"dart": ltr_rank}
 
     all_results = {}
 
@@ -139,9 +139,8 @@ if __name__ == "__main__":
             all_results[algo_name] = maps
     
     if args.ltr:
-        with open(f'results/context_map_ltr_{args.partition_id}_of_{args.total_partitions}.pkl', 'wb') as f:
+        with open(f'results/context_mrrs_ltr_{args.partition_id}_of_{args.total_partitions}.pkl', 'wb') as f:
             pickle.dump(all_results, f)
     else:
-        with open(f'results/context_maps.pkl', 'wb') as f:
+        with open(f'results/context_mrrs.pkl', 'wb') as f:
             pickle.dump(all_results, f)
-    print('Success! ' + f'Partition ID: {args.partition_id} out of {args.total_partitions}' if args.ltr else '')
